@@ -44,7 +44,7 @@ dependencies:
   flutter_push_plus:
     git:
       url: https://github.com/20156284/flutter_push_plus.git
-      ref: v0.3.0
+      ref: v0.4.0
 ```
 
 ## 2. 配置
@@ -54,7 +54,7 @@ dependencies:
 只填你要用的厂商，**不填的整个不会编进包**：
 
 ```properties
-# 通知渠道：OPPO、小米要求和服务端下发的 channel_id 一致（见第 6 节）
+# 通知渠道：OPPO、小米要求和服务端下发的 channel_id 一致（见第 7 节）
 pushPlus.channelId=im
 pushPlus.channelName=消息
 # 通知栏小图标（android/app/src/main/res/drawable/ 下的资源名，白色透明底）；本地、前台、FCM 后台通知共用

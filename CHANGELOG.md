@@ -1,3 +1,13 @@
+## 0.4.0（破坏性变更）
+
+- 改名去歧义（`PushToken.channel` 指推送通道，通知渠道统一带 Notification）：`PushChannel`→`PushNotificationChannel`、`createChannel`→`createNotificationChannel`、`deleteChannel`→`deleteNotificationChannel`、`init(channels:)`→`init(notificationChannels:)`。
+- 点击非本插件发的通知（如升级前留在通知栏的旧通知）不再抛错，原文放进 `data['payload']`。
+- iOS 没有标题/正文时给 null，与安卓一致；补隐私清单（UserDefaults 声明）；APNs 注册失败打日志。
+- 没有谷歌服务的手机不再选 FCM（之前会选中但永远拿不到令牌）。
+- 通知图标没配或资源不存在时用 App 真实图标，宿主改过启动图标名也不会初始化失败。
+- gradle.properties 里的值做 XML 转义；用错渠道/按钮组在 debug 下断言提示。
+- pubspec 环境约束与 flutter_local_notifications 对齐（Flutter ≥ 3.38.1）。
+
 ## 0.3.0（破坏性变更）
 
 - 统一模型 `PushMessage`：远程/本地、到达/点击/按钮都是它；`onMessage`、`onOpen` 改收 `PushMessage`。

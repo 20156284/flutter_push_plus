@@ -1,6 +1,6 @@
 name: flutter_push_plus
 description: "Unified remote push (APNs/FCM), local notifications and tap routing for Flutter."
-version: 0.3.0
+version: 0.4.0
 homepage: https://github.com/20156284/flutter_push_plus
 repository: https://github.com/20156284/flutter_push_plus
 
