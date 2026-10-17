@@ -25,7 +25,7 @@ internal object PushRouter {
   private val NAMES = listOf("Honor", "Huawei", "Xiaomi", "Oppo", "Vivo", "Fcm")
 
   /** 编进包的所有厂商（只构造不初始化，不触发隐私合规问题）。 */
-  val compiled: List<PushVendor> by lazy { NAMES.mapNotNull(::load) }
+  val compiled: Map<String, PushVendor> by lazy { NAMES.mapNotNull { name -> load(name)?.let { name to it } }.toMap() }
 
   /** 按品牌排优先级，任何一家没编进来或本机不支持都往后退，最后兜底 FCM。 */
   fun pick(context: Context): PushVendor? {
@@ -38,10 +38,11 @@ internal object PushRouter {
       else -> emptyList()
     }
     return (brands + "Fcm").firstNotNullOfOrNull { name ->
-      load(name)?.takeIf { vendor ->
+      compiled[name]?.takeIf { vendor ->
         runCatching { vendor.isSupported(context) }
           .onFailure { Log.w("flutter_push_plus", "${vendor.channel} unavailable", it) }
           .getOrDefault(false)
+          .also { if (!it) Log.i("flutter_push_plus", "${vendor.channel} not supported on this device") }
       }
     }
   }

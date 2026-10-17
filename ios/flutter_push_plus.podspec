@@ -25,5 +25,5 @@ Unified remote push (APNs/FCM), local notifications and tap routing for Flutter.
   # required reason APIs, update the PrivacyInfo.xcprivacy file to describe your
   # plugin's privacy impact, and then uncomment this line. For more information,
   # see https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
-  # s.resource_bundles = {'flutter_push_plus_privacy' => ['flutter_push_plus/Sources/flutter_push_plus/PrivacyInfo.xcprivacy']}
+  s.resource_bundles = {'flutter_push_plus_privacy' => ['flutter_push_plus/Sources/flutter_push_plus/PrivacyInfo.xcprivacy']}
 end

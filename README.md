@@ -147,7 +147,7 @@ await FlutterPushPlus.init(
       PushAction('accept', '接听', foreground: true),
     ]),
   ],
-  channels: const [PushChannel('call', '来电', importance: PushImportance.max, sound: false)],
+  notificationChannels: const [PushNotificationChannel('call', '来电', importance: PushImportance.max, sound: false)],
 );
 
 await FlutterPushPlus.requestPermission(); // 弹系统授权框（Web 要在点击事件里调）
@@ -176,14 +176,14 @@ await FlutterPushPlus.showNotification(
 
 | 方法 | 说明 |
 |---|---|
-| `init({onToken, onMessage, onOpen, onBackgroundAction, showInForeground, channels, categories})` | 启动推送，App 生命周期内调一次 |
+| `init({onToken, onMessage, onOpen, onBackgroundAction, showInForeground, notificationChannels, categories})` | 启动推送，App 生命周期内调一次 |
 | `getToken()` | `PushToken(channel, token)`；还没拿到时为 `null`，拿到后走 `onToken` |
 | `getPermission()` | `PushPermission.granted / denied / notDetermined` |
 | `requestPermission()` | 申请通知权限，返回是否授权 |
 | `openNotificationSettings()` | 打开本 App 的系统通知设置页（用户拒绝过、或 ColorOS/vivo 默认关通知时引导） |
 | `showNotification({id, title, body, data, channelId, category, silent, ongoing, fullScreen, timeSensitive, badge})` | 弹通知。`silent` 改写已有通知时不再响；`ongoing`/`fullScreen` 仅安卓；`timeSensitive`/`badge` 仅 iOS |
 | `cancelNotification(id)` / `cancelAllNotifications()` | 撤掉通知 |
-| `createChannel(PushChannel)` / `deleteChannel(id)` | 运行时增删安卓渠道（渠道的声音/振动建好后不可改，要变就换 id） |
+| `createNotificationChannel(PushNotificationChannel)` / `deleteNotificationChannel(id)` | 运行时增删安卓渠道（渠道的声音/振动建好后不可改，要变就换 id） |
 
 数据模型：
 
@@ -191,7 +191,7 @@ await FlutterPushPlus.showNotification(
 |---|---|
 | `PushMessage` | `source`（remote / local）、`title`、`body`、`data`、`actionId`（点按钮时有值） |
 | `PushToken` | `channel`（APNS / FCM / HUAWEI / HONOR / XIAOMI / OPPO / VIVO）、`token` |
-| `PushChannel` | `id`、`name`、`importance`、`sound`、`vibrate` |
+| `PushNotificationChannel` | `id`、`name`、`importance`、`sound`、`vibrate` |
 | `PushCategory` / `PushAction` | 按钮组 / 按钮：`id`、`title`、`foreground`（点了是否拉起 App）、`destructive` |
 
 ## 5. 通知由谁弹出
@@ -299,7 +299,7 @@ adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId
 
 ### OPPO（含一加、真我）
 - IM 走「通讯与服务」通道：要**发邮件申请，而且 App 要先在 OPPO 软件商店上架**。不申请的话每台设备每天只有 2 条，而且只在下拉通知栏里显示。
-- 服务端的 `channel_id` **必须**等于 `pushPlus.channelId`（或你用 `channels` 建的渠道 id），而且要在推送平台登记一致的渠道 ID 和名称。**定下来之后不能改、不能删**，否则 Android 8+ 不显示通知。
+- 服务端的 `channel_id` **必须**等于 `pushPlus.channelId`（或你用 `notificationChannels` 建的渠道 id），而且要在推送平台登记一致的渠道 ID 和名称。**定下来之后不能改、不能删**，否则 Android 8+ 不显示通知。
 - 令牌在刷机、卸载或长期不联网后会失效，App 每次启动都会重新上报。
 
 ### vivo（含 iQOO）
@@ -329,7 +329,7 @@ cd example && flutter run
 
 **gradle 报找不到 `com.huawei.hms:push` 之类的依赖？** 你的 `settings.gradle` 里设置了 `RepositoriesMode.FAIL_ON_PROJECT_REPOS`，插件就没法自动加仓库。这时把下面几个仓库手动加到 `dependencyResolutionManagement` 里：`https://developer.honor.com/repo`、`https://repos.vivo.com.cn/maven/repository/external-lib/`、`https://developer.huawei.com/repo/`（华为的放在最后）。
 
-**项目里原来直接用了 `flutter_local_notifications`？** 改成用插件的 `showNotification` / `channels` / `categories`，然后删掉自己的初始化。它只能有一个初始化者，两边都初始化会抢点击回调。
+**项目里原来直接用了 `flutter_local_notifications`？** 改成用插件的 `showNotification` / `notificationChannels` / `categories`，然后删掉自己的初始化。它只能有一个初始化者，两边都初始化会抢点击回调。
 
 **Web 上能用吗？** 能弹本地通知、能申请权限（必须在点击事件里调用）；没有远程推送，`getToken()` 恒为 `null`。如果构建时报找不到 `flutter_web_plugins`，在 pubspec 加上 `flutter_web_plugins: {sdk: flutter}`。
 

@@ -5,8 +5,8 @@ homepage: https://github.com/20156284/flutter_push_plus
 repository: https://github.com/20156284/flutter_push_plus
 
 environment:
-  sdk: ^3.13.5
-  flutter: '>=3.3.0'
+  sdk: ^3.10.0
+  flutter: '>=3.38.1'
 
 dependencies:
   flutter:

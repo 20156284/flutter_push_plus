@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:ui';
@@ -15,11 +14,8 @@ export 'src/models.dart';
 /// 后台按钮回调：必须是顶层或静态函数，并加 `@pragma('vm:entry-point')`。
 typedef PushBackgroundHandler = Future<void> Function(PushMessage message);
 
-/// 远程推送、本地通知、点击跳转的统一入口。
-///
-/// - 远程推送：iOS 走 APNs；安卓按品牌自动走华为/荣耀/小米/OPPO/vivo，其余走 FCM。
-/// - 本地通知、App 在前台时收到的远程推送：由插件统一弹出，图标和渠道与远程推送一致。
-/// - App 在后台或被杀时：由系统通知栏展示（只有系统能在 App 不在时弹通知）。
+/// 远程推送、本地通知、点击跳转的统一入口：iOS 走 APNs，安卓按品牌走厂商通道、其余 FCM。
+/// 后台/被杀时由系统通知栏展示；本地通知与前台推送由插件弹出，图标、渠道与远程推送一致。
 class FlutterPushPlus {
   FlutterPushPlus._();
 
@@ -31,23 +27,20 @@ class FlutterPushPlus {
   static ValueChanged<PushMessage>? _onMessage;
   static ValueChanged<PushMessage>? _onOpen;
   static var _showInForeground = true;
-  static var _defaultChannel = const PushChannel('push', 'Push');
-  static final _channels = <String, PushChannel>{};
+  static var _defaultChannel = const PushNotificationChannel('push', 'Push');
+  static final _channels = <String, PushNotificationChannel>{};
   static final _categories = <String, PushCategory>{};
   static ReceivePort? _actionPort;
 
-  /// 启动推送。须在用户同意隐私政策之后调用（小米、vivo、华为等应用商店的合规要求）。
-  ///
-  /// [onToken] 首次拿到或轮换令牌；[onMessage] App 在前台时收到远程推送；
-  /// [onOpen] 用户点了通知或通知上的按钮（远程、本地，前台、后台、冷启动都走这里）；
-  /// [onBackgroundAction] App 被杀时点了不拉起 App 的按钮（如「拒绝来电」）。
+  /// 启动推送，须在用户同意隐私政策之后调用。[onToken] 拿到/轮换令牌；[onMessage] 前台收到远程推送；
+  /// [onOpen] 点了通知或按钮（远程、本地、冷启动都走这里）；[onBackgroundAction] App 被杀时点了不拉起 App 的按钮。
   static Future<void> init({
     ValueChanged<PushToken>? onToken,
     ValueChanged<PushMessage>? onMessage,
     ValueChanged<PushMessage>? onOpen,
     PushBackgroundHandler? onBackgroundAction,
     bool showInForeground = true,
-    List<PushChannel> channels = const [],
+    List<PushNotificationChannel> notificationChannels = const [],
     List<PushCategory> categories = const [],
   }) async {
     _onToken = onToken;
@@ -68,7 +61,7 @@ class FlutterPushPlus {
             : PluginUtilities.getCallbackHandle(onBackgroundAction)
                   ?.toRawHandle(),
       });
-      _defaultChannel = PushChannel(
+      _defaultChannel = PushNotificationChannel(
         native?['channelId'] as String? ?? 'push',
         native?['channelName'] as String? ?? 'Push',
       );
@@ -108,8 +101,8 @@ class FlutterPushPlus {
       onDidReceiveNotificationResponse: (r) => _onOpen?.call(_decode(r)),
       onDidReceiveBackgroundNotificationResponse: pushPlusBackgroundEntry,
     );
-    for (final c in [_defaultChannel, ...channels]) {
-      await createChannel(c);
+    for (final c in [_defaultChannel, ...notificationChannels]) {
+      await createNotificationChannel(c);
     }
 
     // 冷启动：远程推送由原生先存着，本地通知由 flutter_local_notifications 记着
@@ -133,7 +126,7 @@ class FlutterPushPlus {
     return map == null ? null : PushToken(map['channel']!, map['token']!);
   }
 
-  /// 当前通知权限状态。
+  /// 当前通知权限状态；`notDetermined` 只有 Web 能区分，移动端未授权一律是 `denied`。
   static Future<PushPermission> getPermission() async {
     if (kIsWeb) {
       return switch (_web?.permissionStatus) {
@@ -169,11 +162,8 @@ class FlutterPushPlus {
     if (!kIsWeb) await _channel.invokeMethod<void>('openNotificationSettings');
   }
 
-  /// 弹一条通知，被点击时原样回到 `onOpen`（[data] 保留类型）。
-  ///
-  /// [channelId] 默认是 gradle.properties 的 `pushPlus.channelId`；[category] 引用 init 里的按钮组；
-  /// [silent] 不响不振（如改写已显示的通知）。[ongoing]/[fullScreen] 仅安卓（来电），
-  /// [timeSensitive] 仅 iOS（穿透专注模式，需开通能力），[badge] 仅 iOS。
+  /// 弹通知，点击时 [data] 原样回到 `onOpen`（须可 JSON 序列化）。[channelId] 默认 `pushPlus.channelId`，
+  /// [category] 引用 init 的按钮组；[silent] 不响不振；[ongoing]/[fullScreen] 仅安卓，[timeSensitive]/[badge] 仅 iOS。
   static Future<void> showNotification({
     required int id,
     String? title,
@@ -203,7 +193,9 @@ class FlutterPushPlus {
   static Future<void> cancelAllNotifications() => _local.cancelAll();
 
   /// 运行时新建安卓通知渠道（如用户关了声音，换一个静音渠道）；iOS、Web 无此概念，直接忽略。
-  static Future<void> createChannel(PushChannel channel) async {
+  static Future<void> createNotificationChannel(
+    PushNotificationChannel channel,
+  ) async {
     _channels[channel.id] = channel;
     await _android?.createNotificationChannel(
       AndroidNotificationChannel(
@@ -216,7 +208,7 @@ class FlutterPushPlus {
     );
   }
 
-  static Future<void> deleteChannel(String id) async {
+  static Future<void> deleteNotificationChannel(String id) async {
     _channels.remove(id);
     await _android?.deleteNotificationChannel(channelId: id);
   }
@@ -232,6 +224,14 @@ class FlutterPushPlus {
     bool timeSensitive = false,
     int? badge,
   }) {
+    assert(
+      channelId == null || _channels.containsKey(channelId),
+      '通知渠道 $channelId 未创建，先在 init(notificationChannels:) 或 createNotificationChannel 里建',
+    );
+    assert(
+      category == null || _categories.containsKey(category),
+      '按钮组 $category 未注册，先在 init(categories:) 里声明',
+    );
     final channel = _channels[channelId] ?? _defaultChannel;
     return _local.show(
       id: id,
@@ -331,10 +331,17 @@ class FlutterPushPlus {
   static PushMessage _decode(NotificationResponse r) =>
       _decodeJson(r.payload, r.actionId);
 
+  /// 不是本插件发的通知（如升级前留在通知栏的旧通知）原文放进 `data['payload']`，不能抛错。
   static PushMessage _decodeJson(String? payload, String? actionId) {
-    final map = payload == null || payload.isEmpty
-        ? const <String, Object?>{}
-        : (jsonDecode(payload) as Map).cast<String, Object?>();
+    if (payload == null || payload.isEmpty) {
+      return PushMessage(source: PushSource.local, actionId: actionId);
+    }
+    final decoded = _tryDecode(payload);
+    final map = decoded is Map && decoded.containsKey('s')
+        ? decoded.cast<String, Object?>()
+        : {
+            'd': {'payload': payload},
+          };
     return PushMessage(
       source: map['s'] == PushSource.remote.name
           ? PushSource.remote
@@ -344,6 +351,14 @@ class FlutterPushPlus {
       data: (map['d'] as Map?)?.cast<String, Object?>() ?? const {},
       actionId: actionId,
     );
+  }
+
+  static Object? _tryDecode(String text) {
+    try {
+      return jsonDecode(text);
+    } on FormatException {
+      return null;
+    }
   }
 
   static Importance _importance(PushImportance i) => switch (i) {

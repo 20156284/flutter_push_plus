@@ -9,7 +9,7 @@ public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
   private var token: String?
   private var showInForeground = true
   /// 冷启动点推送时 Dart 还没挂处理器，先存着等 takeLaunchOpen 取走。
-  private var pendingOpen: [String: Any]?
+  private var pendingOpen: [String: Any?]?
 
   init(channel: FlutterMethodChannel) {
     self.channel = channel
@@ -61,14 +61,27 @@ public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
     channel.invokeMethod("token", arguments: ["channel": "APNS", "token": hex])
   }
 
+  public func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    // 多为没开 Push Notifications 能力或模拟器不支持
+    NSLog("flutter_push_plus: APNs register failed: %@", error.localizedDescription)
+  }
+
   /// 自定义字段和 aps 平级，去掉 aps 就是 data。
-  private static func message(_ notification: UNNotification) -> [String: Any] {
+  private static func message(_ notification: UNNotification) -> [String: Any?] {
     let content = notification.request.content
     var data: [String: Any] = [:]
     for (key, value) in content.userInfo where key as? String != "aps" {
       if let key = key as? String { data[key] = value }
     }
-    return ["title": content.title, "body": content.body, "data": data]
+    // 与安卓一致：没有标题正文时给 nil 而不是空串
+    return [
+      "title": content.title.isEmpty ? nil : content.title,
+      "body": content.body.isEmpty ? nil : content.body,
+      "data": data,
+    ] as [String: Any?]
   }
 
   /// 前台收到远程推送：交给 Dart 的 onMessage，并按 showInForeground 决定是否弹横幅。

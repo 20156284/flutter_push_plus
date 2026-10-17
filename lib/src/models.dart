@@ -41,6 +41,8 @@ class PushMessage {
   });
 
   final PushSource source;
+
+  /// 安卓远程推送被点击时系统不回传标题正文，为 null；只有 `data` 一定在。
   final String? title;
   final String? body;
 
@@ -50,14 +52,6 @@ class PushMessage {
   /// 点的是通知上的按钮时为按钮 id，点通知本体为 null。
   final String? actionId;
 
-  PushMessage copyWith({String? actionId}) => PushMessage(
-    source: source,
-    title: title,
-    body: body,
-    data: data,
-    actionId: actionId ?? this.actionId,
-  );
-
   @override
   String toString() =>
       'PushMessage(${source.name}, $title, $body, $data, action: $actionId)';
@@ -65,8 +59,8 @@ class PushMessage {
 
 /// 安卓通知渠道。重要性、声音、振动在渠道建好后系统不让改，要变就换个 id 新建。
 @immutable
-class PushChannel {
-  const PushChannel(
+class PushNotificationChannel {
+  const PushNotificationChannel(
     this.id,
     this.name, {
     this.importance = PushImportance.high,

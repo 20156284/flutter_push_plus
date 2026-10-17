@@ -25,8 +25,9 @@ plugins {
     id("com.android.library")
 }
 
-/** 宿主 android/gradle.properties 里的 pushPlus.* 配置；没填的厂商整个不编进包。 */
+/** 宿主 android/gradle.properties 里的 pushPlus.* 配置（已做 XML 转义）；没填的厂商整个不编进包。 */
 fun prop(key: String) = (findProperty("pushPlus.$key") as String?)?.trim()?.takeIf { it.isNotEmpty() }
+    ?.replace("&", "&amp;")?.replace("\"", "&quot;")?.replace("<", "&lt;")
 
 /** 小米、OPPO 官方只给 aar，由宿主放进 android/app/libs/。 */
 fun hostAar(prefix: String) = rootProject.file("app/libs").listFiles()
@@ -166,7 +167,11 @@ kotlin {
 dependencies {
     vendors.forEach {
         when (it.name) {
-            "fcm" -> implementation("com.google.firebase:firebase-messaging:24.1.0")
+            "fcm" -> {
+                implementation("com.google.firebase:firebase-messaging:24.1.0")
+                // 检测有无谷歌服务；firebase-messaging 只在运行期带它，编译期要显式声明（同版本）
+                implementation("com.google.android.gms:play-services-base:18.0.1")
+            }
             "huawei" -> implementation("com.huawei.hms:push:6.13.0.301")
             "honor" -> implementation("com.hihonor.mcs:push:10.0.39.302")
             "vivo" -> implementation("vivo:vpush:4.1.7.0")

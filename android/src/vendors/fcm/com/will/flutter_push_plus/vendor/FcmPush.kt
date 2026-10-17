@@ -1,6 +1,8 @@
 package com.will.flutter_push_plus.vendor
 
 import android.content.Context
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
@@ -14,8 +16,9 @@ import com.will.flutter_push_plus.pushConfig
 class FcmPush : PushVendor {
   override val channel = "FCM"
 
-  /** gradle.properties 填了四项就用它初始化，否则走 google-services.json。 */
+  /** 没有谷歌服务（多数国行机）拿不到令牌；gradle.properties 填了四项就用它初始化，否则走 google-services.json。 */
   override fun isSupported(context: Context): Boolean {
+    if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) != ConnectionResult.SUCCESS) return false
     if (FirebaseApp.getApps(context).isNotEmpty()) return true
     val appId = context.pushConfig("fcm.appId") ?: return FirebaseApp.initializeApp(context) != null
     FirebaseApp.initializeApp(

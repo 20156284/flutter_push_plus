@@ -108,7 +108,7 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
     // 本地通知的点击由 flutter_local_notifications 自己投递
     if (extras.containsKey("notificationId")) return null
     // 冷启动时 init 还没选通道，所以每个编进来的厂商都试一遍（小米的消息是序列化对象，通用规则取不到）
-    val data = PushRouter.compiled.firstNotNullOfOrNull { it.extractClick(intent) }
+    val data = PushRouter.compiled.values.firstNotNullOfOrNull { it.extractClick(intent) }
       ?: extras.keySet().filterNot { key -> key in IGNORED_KEYS || IGNORED_PREFIXES.any(key::startsWith) }
         .mapNotNull { key -> (extras.get(key) as? String)?.let { key to it } }
         .toMap()
