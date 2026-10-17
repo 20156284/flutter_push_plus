@@ -278,7 +278,8 @@ class FlutterPushPlus {
         iOS: DarwinNotificationDetails(
           categoryIdentifier: category,
           badgeNumber: badge,
-          presentSound: !silent,
+          // iOS 没有渠道，按同一个渠道的声音设置走，两端一致
+          presentSound: !silent && channel.sound,
           interruptionLevel: timeSensitive
               ? InterruptionLevel.timeSensitive
               : null,

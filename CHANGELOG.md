@@ -1,3 +1,7 @@
+## 0.4.1
+
+- iOS 通知是否出声跟随所用通知渠道的 `sound`（之前只看 `silent`，关了声音的渠道在 iOS 上仍会响）。
+
 ## 0.4.0（破坏性变更）
 
 - 改名去歧义（`PushToken.channel` 指推送通道，通知渠道统一带 Notification）：`PushChannel`→`PushNotificationChannel`、`createChannel`→`createNotificationChannel`、`deleteChannel`→`deleteNotificationChannel`、`init(channels:)`→`init(notificationChannels:)`。

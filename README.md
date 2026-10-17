@@ -44,7 +44,7 @@ dependencies:
   flutter_push_plus:
     git:
       url: https://github.com/20156284/flutter_push_plus.git
-      ref: v0.4.0
+      ref: v0.4.1
 ```
 
 ## 2. 配置
