@@ -1,3 +1,15 @@
+## 0.3.0（破坏性变更）
+
+- 统一模型 `PushMessage`：远程/本地、到达/点击/按钮都是它；`onMessage`、`onOpen` 改收 `PushMessage`。
+- 统一命名：`showLocal`→`showNotification`、`cancelLocal`→`cancelNotification`，新增 `cancelAllNotifications`、`getPermission`、`createChannel`、`deleteChannel`；`showForeground`→`showInForeground`。
+- 插件独占 flutter_local_notifications：去掉 `local`、`localIcon` 参数，宿主不再直接用它；按钮回调 receiver 自动声明。
+- 通知按钮：`categories` + `PushAction`，`onOpen` 带 `actionId`；App 被杀时走 `onBackgroundAction`。
+- 渠道：`channels` / `createChannel`，`showNotification` 支持 `silent`、`ongoing`、`fullScreen`（`pushPlus.fullScreenIntent=true` 才加权限）、`timeSensitive`、`badge`。
+- 图标只配 `pushPlus.icon` 一处：本地、前台、FCM 后台通知共用。
+- 安卓前台远程推送改由 Dart 统一弹出；`data` 保留类型。
+- iOS 自动设置通知中心代理，宿主不用改 AppDelegate。
+- Web：本地通知与权限可用，远程推送为空操作。
+
 ## 0.2.1
 
 - 修复：华为等厂商的令牌回调在子线程，直接调 Dart 会崩，统一切回主线程；相同令牌不重复回调。

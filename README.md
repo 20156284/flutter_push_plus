@@ -4,7 +4,9 @@
 
 - **使用者只做两件事**：在 `android/gradle.properties` 填各家 ID，在 Dart 里调一次 `init`。
 - **按需打包**：哪家没填 ID，哪家的 SDK 就不编进 APK，不会因为接了插件而臃肿。
-- **统一回调**：令牌统一走 `onToken`，前台收到的推送统一走 `onMessage`，用户点击（远程推送、本地通知，前台、后台、冷启动都算）统一走 `onOpen`。
+- **统一模型**：远程推送、本地通知、到达、点击、按钮，全部是同一个 `PushMessage`（标题 / 正文 / data / 来源 / 按钮 id）。
+- **统一回调**：令牌走 `onToken`，前台收到的推送走 `onMessage`，用户点击（远程推送、本地通知、通知按钮，前台、后台、冷启动都算）走 `onOpen`。
+- **统一弹窗**：通知图标、渠道只配一处；本地通知和前台推送走同一条展示路径，宿主不用再引 `flutter_local_notifications`。
 - **不绑定后端**：令牌注册到哪、推送怎么发，由你的服务端决定。
 
 | 手机 | 走哪个通道 | `PushToken.channel` |
@@ -27,10 +29,11 @@
 2. [配置](#2-配置)
 3. [调用](#3-调用)
 4. [API](#4-api)
-5. [服务端怎么发推送](#5-服务端怎么发推送)
-6. [⚠️ 各厂商注意事项（上线前必读）](#6-️-各厂商注意事项上线前必读)
-7. [示例工程](#7-示例工程)
-8. [常见问题](#8-常见问题)
+5. [通知由谁弹出](#5-通知由谁弹出)
+6. [服务端怎么发推送](#6-服务端怎么发推送)
+7. [⚠️ 各厂商注意事项（上线前必读）](#7-️-各厂商注意事项上线前必读)
+8. [示例工程](#8-示例工程)
+9. [常见问题](#9-常见问题)
 
 ---
 
@@ -41,7 +44,7 @@ dependencies:
   flutter_push_plus:
     git:
       url: https://github.com/20156284/flutter_push_plus.git
-      ref: v0.2.1
+      ref: v0.3.0
 ```
 
 ## 2. 配置
@@ -54,8 +57,10 @@ dependencies:
 # 通知渠道：OPPO、小米要求和服务端下发的 channel_id 一致（见第 6 节）
 pushPlus.channelId=im
 pushPlus.channelName=消息
-# 通知栏小图标（android/app/src/main/res/drawable/ 下的资源名，白色透明底）
+# 通知栏小图标（android/app/src/main/res/drawable/ 下的资源名，白色透明底）；本地、前台、FCM 后台通知共用
 pushPlus.icon=ic_notify
+# 来电等全屏通知要用 showNotification(fullScreen: true) 时才开（Google Play 对该权限有审核要求）
+#pushPlus.fullScreenIntent=true
 
 # FCM（三星、Pixel、海外机）。也可以不填，改放 google-services.json 并接入 google-services 插件
 pushPlus.fcm.appId=1:1234567890:android:abcdef
@@ -100,7 +105,7 @@ pushPlus.vivo.apiKey=xxxxxxxx
 flutter_push_plus: channels = APNS(iOS) + [fcm, huawei, vivo]
 ```
 
-另外，本地通知依赖 `flutter_local_notifications`，宿主的 `android/app/build.gradle.kts` 需要开启 desugaring：
+插件内部用 `flutter_local_notifications` 弹通知（宿主不用引它，按钮回调的 receiver 也由插件自动声明），但它要求宿主的 `android/app/build.gradle.kts` 开启 desugaring：
 
 ```kotlin
 android { compileOptions { isCoreLibraryDesugaringEnabled = true } }
@@ -109,50 +114,97 @@ dependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
 ### 2.2 iOS
 
-1. Xcode → Signing & Capabilities → `+ Capability` → **Push Notifications**。
-2. `AppDelegate.swift` 设置通知中心代理（不设就收不到点击回调和前台推送）：
+Xcode → Signing & Capabilities → `+ Capability` → **Push Notifications**。不用改 `AppDelegate`，插件会自动接好通知中心代理。
+
+只有用 `onBackgroundAction`（App 被杀时点了不拉起 App 的按钮）才需要在 `AppDelegate` 里加一行，让后台 isolate 能用插件（⚠️ iOS 上这个场景还没实测，安卓已实测通过）：
 
 ```swift
-UNUserNotificationCenter.current().delegate = self
+FlutterLocalNotificationsPlugin.setPluginRegistrantCallback { GeneratedPluginRegistrant.register(with: $0) }
 ```
 
 ## 3. 调用
 
 ```dart
+// App 被杀时点了「拒绝」这类按钮：后台执行，不拉起界面。必须是顶层函数
+@pragma('vm:entry-point')
+Future<void> onBackgroundAction(PushMessage m) async => api.rejectCall(m.data['callId']);
+
 // ⚠️ 在用户同意隐私政策之后再调（小米、vivo、华为等应用商店的合规要求）
 await FlutterPushPlus.init(
-  // 用户点了通知：远程推送、本地通知都走这里，参数是服务端下发的自定义字段
-  onOpen: (data) => router.push(data['page'] as String? ?? '/', extra: data),
   // 拿到或更新了令牌：连同通道名一起注册到你的服务端
   onToken: (t) => api.registerDevice(channel: t.channel, token: t.token),
-  // App 在前台时收到的远程推送（默认同时弹系统横幅，showForeground: false 可关）
-  onMessage: (data) => debugPrint('收到推送 $data'),
+  // App 在前台时收到远程推送（默认同时弹横幅，showInForeground: false 可关）
+  onMessage: (m) => debugPrint('收到 ${m.title}: ${m.data}'),
+  // 用户点了通知或按钮：远程、本地统一走这里
+  onOpen: (m) => m.actionId == 'accept'
+      ? callPage.accept(m.data['callId'])
+      : router.push(m.data['page'] as String? ?? '/'),
+  onBackgroundAction: onBackgroundAction,
+  // 可选：按钮组（iOS 要求启动时注册）、额外的安卓渠道
+  categories: const [
+    PushCategory('call', [
+      PushAction('reject', '拒绝', destructive: true),
+      PushAction('accept', '接听', foreground: true),
+    ]),
+  ],
+  channels: const [PushChannel('call', '来电', importance: PushImportance.max, sound: false)],
 );
 
-await FlutterPushPlus.requestPermission(); // 弹系统授权框
+await FlutterPushPlus.requestPermission(); // 弹系统授权框（Web 要在点击事件里调）
 
-await FlutterPushPlus.showLocal(           // 本地通知，点了也会进 onOpen
+// 本地通知：点了同样进 onOpen，data 原样带回（保留 int/bool 等类型）
+await FlutterPushPlus.showNotification(
   id: 1001,
   title: '张三',
   body: '晚上一起吃饭吗？',
-  payload: {'page': '/chat', 'conversationId': 'c42'},
+  data: {'page': '/chat', 'conversationId': 'c42', 'unread': 3},
+);
+
+// 来电：带按钮、全屏、常驻
+await FlutterPushPlus.showNotification(
+  id: 2001, title: '李四', body: '邀请你语音通话',
+  data: {'callId': 'call-7'}, category: 'call', channelId: 'call',
+  ongoing: true, fullScreen: true,
 );
 ```
 
-> 冷启动（App 被杀后点通知拉起）时，`onOpen` 会在 `init` 里回调。这时首页可能还没建好，建议先把数据存起来，等首页出来再跳。
+> 冷启动（App 被杀后点通知拉起）时，`onOpen` 会在 `init` 里回调。这时首页可能还没建好，建议先把消息存起来，等首页出来再跳。
 
 ## 4. API
 
+所有方法都在 `FlutterPushPlus` 上，命名统一为「动词 + 对象」：
+
 | 方法 | 说明 |
 |---|---|
-| `init({onOpen, onToken, onMessage, showForeground, local, localIcon})` | 启动推送。`local: false` 表示你自己管 `flutter_local_notifications`，插件不接管本地通知 |
+| `init({onToken, onMessage, onOpen, onBackgroundAction, showInForeground, channels, categories})` | 启动推送，App 生命周期内调一次 |
 | `getToken()` | `PushToken(channel, token)`；还没拿到时为 `null`，拿到后走 `onToken` |
-| `requestPermission()` | 申请通知权限（iOS 和 Android 13+ 会弹系统框），返回是否已授权 |
-| `openNotificationSettings()` | 打开本 App 的系统通知设置页。用户拒绝过授权，或系统默认关了通知（ColorOS、vivo），就引导到这里 |
-| `showLocal({id, title, body, payload, channelId, channelName, icon, badge})` | 弹本地通知，默认用 `pushPlus.channelId` 渠道 |
-| `cancelLocal(id)` | 撤掉一条本地通知 |
+| `getPermission()` | `PushPermission.granted / denied / notDetermined` |
+| `requestPermission()` | 申请通知权限，返回是否授权 |
+| `openNotificationSettings()` | 打开本 App 的系统通知设置页（用户拒绝过、或 ColorOS/vivo 默认关通知时引导） |
+| `showNotification({id, title, body, data, channelId, category, silent, ongoing, fullScreen, timeSensitive, badge})` | 弹通知。`silent` 改写已有通知时不再响；`ongoing`/`fullScreen` 仅安卓；`timeSensitive`/`badge` 仅 iOS |
+| `cancelNotification(id)` / `cancelAllNotifications()` | 撤掉通知 |
+| `createChannel(PushChannel)` / `deleteChannel(id)` | 运行时增删安卓渠道（渠道的声音/振动建好后不可改，要变就换 id） |
 
-## 5. 服务端怎么发推送
+数据模型：
+
+| 类型 | 字段 |
+|---|---|
+| `PushMessage` | `source`（remote / local）、`title`、`body`、`data`、`actionId`（点按钮时有值） |
+| `PushToken` | `channel`（APNS / FCM / HUAWEI / HONOR / XIAOMI / OPPO / VIVO）、`token` |
+| `PushChannel` | `id`、`name`、`importance`、`sound`、`vibrate` |
+| `PushCategory` / `PushAction` | 按钮组 / 按钮：`id`、`title`、`foreground`（点了是否拉起 App）、`destructive` |
+
+## 5. 通知由谁弹出
+
+| App 状态 | 远程推送 | 本地通知 |
+|---|---|---|
+| 后台 / 被杀 | **系统通知栏**（APNs、各厂商、FCM 自己弹） | — |
+| 前台 | iOS：系统横幅；安卓 FCM：插件代弹。都受 `showInForeground` 控制，同时回调 `onMessage` | 插件弹（`showNotification`） |
+
+为什么后台一定交给系统：App 被杀后 Dart 根本没在运行，只有系统能弹；国产 ROM 上「静默消息 + 自己弹」会被限制、延迟甚至丢失，所以厂商通知栏消息是唯一可靠的方式。
+前台由插件统一弹出：图标、渠道和远程推送一致，点击也统一回到 `onOpen`。华为、荣耀、小米、OPPO、vivo 的通知在前台也由系统直接展示。
+
+## 6. 服务端怎么发推送
 
 **一条消息，一套字段，所有通道都一样**。服务端只需要准备好这三样，再按设备注册时上报的 `channel` 填进对应厂商的接口：
 
@@ -219,7 +271,7 @@ xcrun simctl push booted <bundle id> payload.json
 adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId c42
 ```
 
-## 6. ⚠️ 各厂商注意事项（上线前必读）
+## 7. ⚠️ 各厂商注意事项（上线前必读）
 
 ### 通用
 
@@ -247,7 +299,7 @@ adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId
 
 ### OPPO（含一加、真我）
 - IM 走「通讯与服务」通道：要**发邮件申请，而且 App 要先在 OPPO 软件商店上架**。不申请的话每台设备每天只有 2 条，而且只在下拉通知栏里显示。
-- 服务端的 `channel_id` **必须**等于 `pushPlus.channelId`，而且要在推送平台登记一致的渠道 ID 和名称。**定下来之后不能改、不能删**，否则 Android 8+ 不显示通知。
+- 服务端的 `channel_id` **必须**等于 `pushPlus.channelId`（或你用 `channels` 建的渠道 id），而且要在推送平台登记一致的渠道 ID 和名称。**定下来之后不能改、不能删**，否则 Android 8+ 不显示通知。
 - 令牌在刷机、卸载或长期不联网后会失效，App 每次启动都会重新上报。
 
 ### vivo（含 iQOO）
@@ -257,19 +309,19 @@ adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId
 
 ### FCM
 - 国行手机一般没有谷歌服务，FCM 拿不到令牌。所以国产品牌请配好各自的厂商通道。
-- App 在前台时收到的通知消息，由插件代为弹出横幅（受 `showForeground` 控制）；在后台时由系统展示，渠道用 `pushPlus.channelId`。
+- App 在前台时收到的通知消息，由插件代为弹出横幅（受 `showInForeground` 控制）；在后台时由系统展示，渠道用 `pushPlus.channelId`。
 
-## 7. 示例工程
+## 8. 示例工程
 
-`example/` 可以直接运行：申请权限、查看令牌、弹本地通知、点通知跳到详情页（显示收到的字段）、打开系统通知设置。
+`example/` 可以直接运行：申请权限、查看令牌、弹本地通知、带「拒绝/接听」按钮的来电通知、点通知跳到详情页（显示来源、按钮 id 和 data 的类型）、打开系统通知设置。
 
 ```bash
 cd example && flutter run
 ```
 
-## 8. 常见问题
+## 9. 常见问题
 
-**iOS 点了通知没反应？** 检查 `AppDelegate` 里有没有设置 `UNUserNotificationCenter.current().delegate = self`。
+**iOS 点了通知没反应？** 插件只在宿主没设置通知中心代理时才自动设置。如果你或别的插件把代理设成了其它对象，要让那个对象把回调转给 `FlutterAppDelegate`。
 
 **怎么确认走的是哪个通道？** 看 logcat 里的 `flutter_push_plus: channel XXX`，或者看 `onToken` 回调里的 `channel`。
 
@@ -277,7 +329,9 @@ cd example && flutter run
 
 **gradle 报找不到 `com.huawei.hms:push` 之类的依赖？** 你的 `settings.gradle` 里设置了 `RepositoriesMode.FAIL_ON_PROJECT_REPOS`，插件就没法自动加仓库。这时把下面几个仓库手动加到 `dependencyResolutionManagement` 里：`https://developer.honor.com/repo`、`https://repos.vivo.com.cn/maven/repository/external-lib/`、`https://developer.huawei.com/repo/`（华为的放在最后）。
 
-**和项目里已有的 `flutter_local_notifications` 冲突？** 用 `init(local: false)`，插件就只管远程推送。
+**项目里原来直接用了 `flutter_local_notifications`？** 改成用插件的 `showNotification` / `channels` / `categories`，然后删掉自己的初始化。它只能有一个初始化者，两边都初始化会抢点击回调。
+
+**Web 上能用吗？** 能弹本地通知、能申请权限（必须在点击事件里调用）；没有远程推送，`getToken()` 恒为 `null`。如果构建时报找不到 `flutter_web_plugins`，在 pubspec 加上 `flutter_web_plugins: {sdk: flutter}`。
 
 ## License
 

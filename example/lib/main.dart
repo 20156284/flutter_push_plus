@@ -3,6 +3,11 @@ import 'package:flutter_push_plus/flutter_push_plus.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// App 被杀时点了「拒绝」：在后台 isolate 执行，不拉起界面。
+@pragma('vm:entry-point')
+Future<void> onBackgroundAction(PushMessage message) async =>
+    debugPrint('background action: ${message.actionId} ${message.data}');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
@@ -13,15 +18,22 @@ Future<void> main() async {
     ),
   );
   await FlutterPushPlus.init(
-    // 点了通知：带 page 字段就跳过去，并把整包字段传给目标页
-    onOpen: (data) => navigatorKey.currentState?.pushNamed(
-      data['page'] as String? ?? '/detail',
-      arguments: data,
-    ),
-    // 实际项目里在这里把令牌注册到自己的服务端
+    // 拿到/轮换令牌：实际项目里注册到自己的服务端
     onToken: (token) => debugPrint('push token: $token'),
-    // App 在前台时收到的远程推送（同时会弹系统横幅，showForeground: false 可关）
-    onMessage: (data) => debugPrint('push message: $data'),
+    // App 在前台收到远程推送（默认同时弹横幅）
+    onMessage: (message) => debugPrint('push message: $message'),
+    // 点了通知或按钮：远程、本地统一走这里
+    onOpen: (message) => navigatorKey.currentState?.pushNamed(
+      message.data['page'] as String? ?? '/detail',
+      arguments: message,
+    ),
+    onBackgroundAction: onBackgroundAction,
+    categories: const [
+      PushCategory('call', [
+        PushAction('reject', '拒绝', destructive: true),
+        PushAction('accept', '接听', foreground: true),
+      ]),
+    ],
   );
 }
 
@@ -56,14 +68,24 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(height: 8),
         FilledButton(
-          onPressed: () => FlutterPushPlus.showLocal(
+          onPressed: () => FlutterPushPlus.showNotification(
             id: 1,
             title: '张三',
             body: '晚上一起吃饭吗？点我打开详情',
-            payload: {'page': '/detail', 'conversationId': 'c42'},
-            badge: 1,
+            data: {'page': '/detail', 'conversationId': 'c42', 'unread': 3},
           ),
           child: const Text('3. 弹一条本地通知'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () => FlutterPushPlus.showNotification(
+            id: 2,
+            title: '李四',
+            body: '邀请你语音通话',
+            data: {'callId': 'call-7'},
+            category: 'call',
+          ),
+          child: const Text('4. 带按钮的通知（来电）'),
         ),
         const SizedBox(height: 8),
         OutlinedButton(
@@ -77,20 +99,32 @@ class _HomePageState extends State<HomePage> {
   );
 }
 
-/// 通知点进来的落地页：展示收到的自定义字段。
+/// 通知点进来的落地页：展示收到的消息。
 class DetailPage extends StatelessWidget {
   const DetailPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final data = ModalRoute.of(context)!.settings.arguments as Map? ?? {};
+    final message = ModalRoute.of(context)!.settings.arguments as PushMessage?;
     return Scaffold(
       appBar: AppBar(title: const Text('从通知打开')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          for (final e in data.entries)
-            ListTile(title: Text('${e.key}'), subtitle: Text('${e.value}')),
+          ListTile(
+            title: const Text('source'),
+            subtitle: Text('${message?.source.name}'),
+          ),
+          ListTile(
+            title: const Text('actionId'),
+            subtitle: Text('${message?.actionId}'),
+          ),
+          for (final e
+              in message?.data.entries ?? const <MapEntry<String, Object?>>[])
+            ListTile(
+              title: Text(e.key),
+              subtitle: Text('${e.value} (${e.value.runtimeType})'),
+            ),
         ],
       ),
     );

@@ -45,7 +45,8 @@ val vendors = listOf(
         "fcm", prop("fcm.appId") != null || rootProject.file("app/google-services.json").exists(),
         listOf("fcm.apiKey", "fcm.appId", "fcm.projectId", "fcm.senderId").filter { prop(it) != null }
             .joinToString("") { meta(it) } + """
-        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="${prop("channelId") ?: "push"}" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="${prop("channelId") ?: "push"}" />${prop("icon")?.let { """
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/$it" />""" } ?: ""}
         <service android:name=".vendor.FcmService" android:exported="false">
             <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
         </service>""",
@@ -107,7 +108,9 @@ val generatedManifest = layout.buildDirectory.file("generated/pushplus/AndroidMa
     writeText(
         """<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-${vendors.joinToString("") { it.queries }.takeIf { it.isNotEmpty() }?.let { "    <queries>$it</queries>\n" } ?: ""}    <application>
+${if (prop("fullScreenIntent") == "true") "    <uses-permission android:name=\"android.permission.USE_FULL_SCREEN_INTENT\" />\n" else ""}${vendors.joinToString("") { it.queries }.takeIf { it.isNotEmpty() }?.let { "    <queries>$it</queries>\n" } ?: ""}    <application>
+        <!-- 通知按钮（不拉起 App 的那种）的回调入口，flutter_local_notifications 要求宿主声明，这里代劳 -->
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" android:exported="false" />
         ${listOf("channelId", "channelName", "icon").filter { prop(it) != null }.joinToString("") { meta(it) }}${vendors.joinToString("") { it.manifest }}
     </application>
 </manifest>
@@ -161,7 +164,6 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core:1.13.1")
     vendors.forEach {
         when (it.name) {
             "fcm" -> implementation("com.google.firebase:firebase-messaging:24.1.0")
