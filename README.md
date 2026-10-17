@@ -27,7 +27,7 @@
 2. [配置](#2-配置)
 3. [调用](#3-调用)
 4. [API](#4-api)
-5. [服务端怎么发（各厂商）](#5-服务端怎么发各厂商)
+5. [服务端怎么发推送](#5-服务端怎么发推送)
 6. [⚠️ 各厂商注意事项（上线前必读）](#6-️-各厂商注意事项上线前必读)
 7. [示例工程](#7-示例工程)
 8. [常见问题](#8-常见问题)
@@ -152,60 +152,72 @@ await FlutterPushPlus.showLocal(           // 本地通知，点了也会进 onO
 | `showLocal({id, title, body, payload, channelId, channelName, icon, badge})` | 弹本地通知，默认用 `pushPlus.channelId` 渠道 |
 | `cancelLocal(id)` | 撤掉一条本地通知 |
 
-## 5. 服务端怎么发（各厂商）
+## 5. 服务端怎么发推送
 
-各家统一约定：**点击动作选「打开应用」，自定义字段放在各家的「自定义参数」里**。插件从启动 Intent 里取出这些字段，交给 `onOpen`。
+**一条消息，一套字段，所有通道都一样**。服务端只需要准备好这三样，再按设备注册时上报的 `channel` 填进对应厂商的接口：
 
-下面都以「打开 App，带上 `{page:'/chat', conversationId:'c42'}`」为例：
-
-**APNs**：自定义字段和 `aps` 平级
 ```json
-{"aps":{"alert":{"title":"张三","body":"晚上一起吃饭吗？"},"sound":"default"},
- "page":"/chat","conversationId":"c42"}
+{ "title": "张三", "body": "晚上一起吃饭吗？", "data": { "page": "/chat", "conversationId": "c42" } }
 ```
 
-**FCM**（HTTP v1）：字段放 `data`，值必须是字符串
-```json
+App 收到后，不管是哪个通道、App 在前台后台还是被杀，点击时 `onOpen` 拿到的都是同一个 `data`：`{page: /chat, conversationId: c42}`。
+
+各通道只是「把 `data` 放在哪」和「点击动作写什么」不同：
+
+| `channel` | 发送接口 | 点击动作 | `data` 放在哪 | IM 消息分类 |
+|---|---|---|---|---|
+| `APNS` | APNs HTTP/2 | 默认 | 和 `aps` 平级的自定义键 | — |
+| `FCM` | `fcm.googleapis.com/v1/.../messages:send` | 默认 | `message.data`（值必须是字符串） | — |
+| `HUAWEI` | `push-api.cloud.huawei.com/v1/{appId}/messages:send` | `click_action.type=3` | `message.data`（JSON 字符串） | `category: "IM"` |
+| `HONOR` | `push-api.cloud.honor.com/api/v1/{appId}/sendMessage` | `clickAction.type=3` | `android.data`（JSON 字符串） | `importance: "NORMAL"` |
+| `XIAOMI` | `api.xmpush.xiaomi.com/v3/message/regid` | `extra.notify_effect=1` | 每个键写成 `extra.<键>` | `extra.channel_id=<私信渠道>` |
+| `OPPO` | `api-push-cn.heytapmobi.com/server/v1/message/notification/unicast` | `click_action_type=0` | `action_parameters`（JSON 字符串） | `category: "IM"` + `channel_id` |
+| `VIVO` | `api-push.vivo.com.cn/message/send` | `skipType=1` | `clientCustomMap` | `category: "IM"` |
+
+> 服务端建议也封装成一个函数：`send(device, title, body, data)`，内部按 `device.channel` 分发。业务代码只关心标题、正文和 `data`。
+
+<details>
+<summary>展开：同一条消息在各通道的完整请求体</summary>
+
+```jsonc
+// APNS
+{"aps":{"alert":{"title":"张三","body":"晚上一起吃饭吗？"},"sound":"default"},"page":"/chat","conversationId":"c42"}
+
+// FCM
 {"message":{"token":"<令牌>","notification":{"title":"张三","body":"晚上一起吃饭吗？"},
- "android":{"notification":{"channel_id":"im"}},
- "data":{"page":"/chat","conversationId":"c42"}}}
-```
+ "android":{"notification":{"channel_id":"im"}},"data":{"page":"/chat","conversationId":"c42"}}}
 
-**华为**：`POST https://push-api.cloud.huawei.com/v1/{appId}/messages:send`
-```json
+// HUAWEI
 {"message":{"token":["<令牌>"],"data":"{\"page\":\"/chat\",\"conversationId\":\"c42\"}",
- "android":{"notification":{"title":"张三","body":"晚上一起吃饭吗？",
-   "importance":"NORMAL","category":"IM","click_action":{"type":3}}}}}
-```
+ "android":{"notification":{"title":"张三","body":"晚上一起吃饭吗？","importance":"NORMAL","category":"IM","click_action":{"type":3}}}}}
 
-**荣耀**：`POST https://push-api.cloud.honor.com/api/v1/{appId}/sendMessage`
-```json
+// HONOR
 {"token":["<令牌>"],"android":{"data":"{\"page\":\"/chat\",\"conversationId\":\"c42\"}",
  "notification":{"title":"张三","body":"晚上一起吃饭吗？","importance":"NORMAL","clickAction":{"type":3}}}}
-```
 
-**小米**：`POST https://api.xmpush.xiaomi.com/v3/message/regid`（表单格式）
-```
-registration_id=<令牌>&restricted_package_name=<包名>&title=张三&description=晚上一起吃饭吗？
-&notify_type=-1&extra.notify_effect=1&extra.channel_id=<私信渠道ID>
-&extra.page=/chat&extra.conversationId=c42
-```
+// XIAOMI（表单格式）
+registration_id=<令牌>&restricted_package_name=<包名>&title=张三&description=晚上一起吃饭吗？&notify_type=-1
+&extra.notify_effect=1&extra.channel_id=<私信渠道ID>&extra.page=/chat&extra.conversationId=c42
 
-**OPPO**：`POST https://api-push-cn.heytapmobi.com/server/v1/message/notification/unicast`
-```json
-{"target_type":2,"target_value":"<令牌>","notification":{"title":"张三","content":"晚上一起吃饭吗？",
- "click_action_type":0,"action_parameters":"{\"page\":\"/chat\",\"conversationId\":\"c42\"}",
- "channel_id":"im","category":"IM","notify_level":2}}
-```
+// OPPO
+{"target_type":2,"target_value":"<令牌>","notification":{"title":"张三","content":"晚上一起吃饭吗？","click_action_type":0,
+ "action_parameters":"{\"page\":\"/chat\",\"conversationId\":\"c42\"}","channel_id":"im","category":"IM","notify_level":2}}
 
-**vivo**：`POST https://api-push.vivo.com.cn/message/send`
-```json
+// VIVO
 {"regId":"<令牌>","notifyType":4,"title":"张三","content":"晚上一起吃饭吗？","skipType":1,
  "category":"IM","clientCustomMap":{"page":"/chat","conversationId":"c42"},"requestId":"<uuid>"}
 ```
 
-**本地调试**：iOS 模拟器不经服务器也能模拟一条推送：`xcrun simctl push booted <bundle id> payload.json`。
-安卓可以模拟「点通知拉起 App」：`adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId c42`。
+</details>
+
+**本地调试**：不经服务器也能模拟，两端拿到的 `data` 和真推送一样：
+
+```bash
+# iOS 模拟器：模拟一条远程推送
+xcrun simctl push booted <bundle id> payload.json
+# Android：模拟「点通知拉起 App」
+adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId c42
+```
 
 ## 6. ⚠️ 各厂商注意事项（上线前必读）
 
