@@ -7,6 +7,7 @@ import UserNotifications
 public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
   private let channel: FlutterMethodChannel
   private var token: String?
+  private var showForeground = true
   /// 冷启动点推送时 Dart 还没挂处理器，先存着等 takeLaunchOpen 取走。
   private var pendingOpen: [AnyHashable: Any]?
 
@@ -24,7 +25,13 @@ public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "init":
+      showForeground = (call.arguments as? [String: Any])?["showForeground"] as? Bool ?? true
       UIApplication.shared.registerForRemoteNotifications()
+      result(nil)
+    case "openNotificationSettings":
+      var url = UIApplication.openSettingsURLString
+      if #available(iOS 16.0, *) { url = UIApplication.openNotificationSettingsURLString }
+      UIApplication.shared.open(URL(string: url)!)
       result(nil)
     case "getToken":
       result(token.map { ["channel": "APNS", "token": $0] })
@@ -43,6 +50,22 @@ public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
     token = hex
     channel.invokeMethod("token", arguments: ["channel": "APNS", "token": hex])
+  }
+
+  /// 前台收到远程推送：交给 Dart 的 onMessage，并按 showForeground 决定是否弹横幅。
+  public func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    // 本地通知留给 flutter_local_notifications；两边都调完成回调会崩
+    guard notification.request.trigger is UNPushNotificationTrigger else { return }
+    let content = notification.request.content
+    var message = content.userInfo
+    message["title"] = content.title
+    message["body"] = content.body
+    channel.invokeMethod("message", arguments: message)
+    completionHandler(showForeground ? [.banner, .list, .sound, .badge] : [])
   }
 
   public func userNotificationCenter(

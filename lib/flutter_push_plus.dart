@@ -9,7 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 class PushToken {
   const PushToken(this.channel, this.token);
 
-  /// APNS / FCM（后续：HUAWEI / XIAOMI / OPPO / VIVO / HONOR）
+  /// APNS / FCM / HUAWEI / HONOR / XIAOMI / OPPO / VIVO，与服务端通道枚举一致
   final String channel;
   final String token;
 
@@ -17,33 +17,10 @@ class PushToken {
   String toString() => 'PushToken($channel, $token)';
 }
 
-/// 不放 google-services.json 时用这四项初始化 Firebase（取自 Firebase 控制台的安卓应用）。
-@immutable
-class FcmOptions {
-  const FcmOptions({
-    required this.apiKey,
-    required this.appId,
-    required this.projectId,
-    required this.senderId,
-  });
-
-  final String apiKey;
-  final String appId;
-  final String projectId;
-  final String senderId;
-
-  Map<String, String> toMap() => {
-    'apiKey': apiKey,
-    'appId': appId,
-    'projectId': projectId,
-    'senderId': senderId,
-  };
-}
-
 /// 远程推送、本地通知、点击跳转的统一入口。
 ///
-/// 远程推送和本地通知被点击都回调 [init] 的 `onOpen`，参数是推送的自定义字段；
-/// 冷启动时点的那条也会在 `init` 里补发，不会丢。
+/// 安卓按手机品牌自动选通道（华为/荣耀/小米/OPPO/vivo，其余走 FCM），各家 ID 写在宿主
+/// `android/gradle.properties`；远程推送和本地通知被点击都回调 `onOpen`，冷启动那条也不会丢。
 class FlutterPushPlus {
   FlutterPushPlus._();
 
@@ -52,21 +29,31 @@ class FlutterPushPlus {
 
   static ValueChanged<Map<String, Object?>>? _onOpen;
   static ValueChanged<PushToken>? _onToken;
+  static ValueChanged<Map<String, Object?>>? _onMessage;
+  static var _channelId = 'push';
+  static var _channelName = 'Push';
 
-  /// [localIcon] 是安卓本地通知的小图标（drawable/mipmap 资源名）；
+  /// 须在用户同意隐私政策之后调用（小米、vivo 等合规要求）。
+  /// [onMessage] 是 App 在前台时收到的远程推送；[showForeground] 为 true 时同时弹系统横幅。
   /// 宿主已自行初始化 flutter_local_notifications 时传 `local: false`，免得抢走它的点击回调。
   static Future<void> init({
     required ValueChanged<Map<String, Object?>> onOpen,
     ValueChanged<PushToken>? onToken,
-    FcmOptions? fcm,
+    ValueChanged<Map<String, Object?>>? onMessage,
+    bool showForeground = true,
     bool local = true,
     String localIcon = '@mipmap/ic_launcher',
   }) async {
     if (kIsWeb) return;
     _onOpen = onOpen;
     _onToken = onToken;
+    _onMessage = onMessage;
     _channel.setMethodCallHandler(_handle);
-    await _channel.invokeMethod<void>('init', fcm?.toMap());
+    final channel = await _channel.invokeMapMethod<String, String>('init', {
+      'showForeground': showForeground,
+    });
+    _channelId = channel?['channelId'] ?? _channelId;
+    _channelName = channel?['channelName'] ?? _channelName;
     final launch = await _channel.invokeMapMethod<String, Object?>(
       'takeLaunchOpen',
     );
@@ -115,15 +102,19 @@ class FlutterPushPlus {
     return granted ?? false;
   }
 
+  /// 打开本 App 的系统通知设置页；ColorOS、vivo 等新装默认关通知，拒绝过授权后只能引导去这里开。
+  static Future<void> openNotificationSettings() =>
+      _channel.invokeMethod<void>('openNotificationSettings');
+
   /// 弹一条本地通知；[payload] 在被点击时原样回到 `onOpen`。
-  /// [channelId]/[channelName] 是安卓通知渠道，用户可在系统设置里按渠道开关。
+  /// 安卓通知渠道默认用 gradle.properties 的 `pushPlus.channelId`，与远程推送同一个渠道。
   static Future<void> showLocal({
     required int id,
     String? title,
     String? body,
     Map<String, Object?> payload = const {},
-    String channelId = 'default',
-    String channelName = 'Notifications',
+    String? channelId,
+    String? channelName,
     String? icon,
     int? badge,
   }) => _local.show(
@@ -133,8 +124,8 @@ class FlutterPushPlus {
     payload: jsonEncode(payload),
     notificationDetails: NotificationDetails(
       android: AndroidNotificationDetails(
-        channelId,
-        channelName,
+        channelId ?? _channelId,
+        channelName ?? _channelName,
         icon: icon,
         importance: Importance.high,
         priority: Priority.high,
@@ -152,6 +143,8 @@ class FlutterPushPlus {
         _onToken?.call(
           PushToken(args!['channel']! as String, args['token']! as String),
         );
+      case 'message':
+        _onMessage?.call(args ?? const {});
       case 'open':
         _onOpen?.call(args ?? const {});
         // 告诉原生已处理，否则它会留给下次 takeLaunchOpen

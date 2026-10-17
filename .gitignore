@@ -40,3 +40,5 @@ example/integration_test/
 
 # FVM Version Cache
 .fvm/
+# 厂商 SDK 由使用者自行下载，不随仓库分发
+example/android/app/libs/

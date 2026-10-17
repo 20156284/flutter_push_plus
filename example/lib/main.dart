@@ -20,6 +20,8 @@ Future<void> main() async {
     ),
     // 实际项目里在这里把令牌注册到自己的服务端
     onToken: (token) => debugPrint('push token: $token'),
+    // App 在前台时收到的远程推送（同时会弹系统横幅，showForeground: false 可关）
+    onMessage: (data) => debugPrint('push message: $data'),
   );
 }
 
@@ -62,6 +64,11 @@ class _HomePageState extends State<HomePage> {
             badge: 1,
           ),
           child: const Text('3. 弹一条本地通知'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: FlutterPushPlus.openNotificationSettings,
+          child: const Text('通知被关了？去系统设置打开'),
         ),
         const SizedBox(height: 16),
         SelectableText(_status),
