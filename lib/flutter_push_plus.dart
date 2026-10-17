@@ -58,14 +58,15 @@ class FlutterPushPlus {
         'showInForeground': showInForeground,
         'backgroundHandle': onBackgroundAction == null
             ? null
-            : PluginUtilities.getCallbackHandle(onBackgroundAction)
-                  ?.toRawHandle(),
+            : PluginUtilities.getCallbackHandle(
+                onBackgroundAction,
+              )?.toRawHandle(),
       });
       _defaultChannel = PushNotificationChannel(
         native?['channelId'] as String? ?? 'push',
         native?['channelName'] as String? ?? 'Push',
       );
-      if (native?['icon'] case final String name) icon = '@drawable/$name';
+      icon = native?['icon'] as String? ?? icon;
       _listenActions();
     }
 

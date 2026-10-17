@@ -48,8 +48,11 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
           Log.i(TAG, "channel ${v.channel}")
           v.register(context) { emitToken(v.channel, it) } // 各家回调线程不定，统一切回主线程
         } ?: Log.w(TAG, "no push channel available")
+        // 没配或资源不存在就用 App 图标的真实资源名，flutter_local_notifications 找不到图标会初始化失败
+        val res = context.resources
         val icon = context.pushConfig("icon")
-          ?.takeIf { context.resources.getIdentifier(it, "drawable", context.packageName) != 0 }
+          ?.takeIf { res.getIdentifier(it, "drawable", context.packageName) != 0 }?.let { "@drawable/$it" }
+          ?: context.applicationInfo.icon.let { "@${res.getResourceTypeName(it)}/${res.getResourceEntryName(it)}" }
         result.success(
           mapOf(
             "channelId" to (context.pushConfig("channelId") ?: "push"),
