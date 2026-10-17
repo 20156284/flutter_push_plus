@@ -22,6 +22,11 @@ interface PushVendor {
 }
 
 internal object PushRouter {
+  private val NAMES = listOf("Honor", "Huawei", "Xiaomi", "Oppo", "Vivo", "Fcm")
+
+  /** 编进包的所有厂商（只构造不初始化，不触发隐私合规问题）。 */
+  val compiled: List<PushVendor> by lazy { NAMES.mapNotNull(::load) }
+
   /** 按品牌排优先级，任何一家没编进来或本机不支持都往后退，最后兜底 FCM。 */
   fun pick(context: Context): PushVendor? {
     val brands = when (Build.MANUFACTURER.lowercase()) {

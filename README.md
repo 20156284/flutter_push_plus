@@ -41,7 +41,7 @@ dependencies:
   flutter_push_plus:
     git:
       url: https://github.com/20156284/flutter_push_plus.git
-      ref: v0.2.0
+      ref: v0.2.1
 ```
 
 ## 2. 配置
@@ -66,7 +66,7 @@ pushPlus.fcm.senderId=1234567890
 # 华为（AppGallery Connect → 项目设置 → 常规 → APP ID）
 pushPlus.huawei.appId=104xxxxxx
 
-# 荣耀（荣耀开发者服务平台 → 应用信息 → APP ID）
+# 荣耀（荣耀开发者服务平台 → 应用信息 → APP ID，照控制台的纯数字原样填）
 pushPlus.honor.appId=104xxxxxx
 
 # 小米（还要把 MiPush_SDK_Client_x.x.x.aar 放进 android/app/libs/）
@@ -77,7 +77,7 @@ pushPlus.xiaomi.appKey=5xxxxxxxxxxxx
 pushPlus.oppo.appKey=xxxxxxxx
 pushPlus.oppo.appSecret=xxxxxxxx
 
-# vivo
+# vivo（APP ID 照控制台的纯数字原样填）
 pushPlus.vivo.appId=10xxxx
 pushPlus.vivo.apiKey=xxxxxxxx
 ```

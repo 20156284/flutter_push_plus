@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -49,7 +50,7 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
         createChannel()
         vendor = PushRouter.pick(context)?.also { v ->
           Log.i(TAG, "channel ${v.channel}")
-          v.register(context) { emitToken(v.channel, it) }
+          v.register(context) { emitToken(v.channel, it) } // 各家回调线程不定，统一切回主线程
         } ?: null.also { Log.w(TAG, "no push channel available") }
         result.success(mapOf("channelId" to channelId, "channelName" to channelName))
       }
@@ -59,11 +60,12 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
         pendingOpen = null
       }
       "openNotificationSettings" -> {
-        context.startActivity(
-          Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        } else {
+          Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+        }
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         result.success(null)
       }
       else -> result.notImplemented()
@@ -109,7 +111,8 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
    */
   private fun takeClick(intent: Intent?): Map<String, String>? {
     intent ?: return null
-    val data = vendor?.extractClick(intent) ?: intent.extras?.let { extras ->
+    // 冷启动时 init 还没选通道，所以每个编进来的厂商都试一遍（小米的消息是序列化对象，通用规则取不到）
+    val data = PushRouter.compiled.firstNotNullOfOrNull { it.extractClick(intent) } ?: intent.extras?.let { extras ->
       extras.keySet().filterNot { key -> key in IGNORED_KEYS || IGNORED_PREFIXES.any(key::startsWith) }
         .mapNotNull { key -> (extras.get(key) as? String)?.let { key to it } }
         .toMap()
@@ -119,9 +122,12 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
     return data
   }
 
-  private fun emitToken(name: String, value: String) {
-    token = mapOf("channel" to name, "token" to value)
-    channel.invokeMethod("token", token)
+  /** 华为、荣耀的令牌会从主动获取和 onNewToken 各来一次，相同的不重复通知。 */
+  private fun emitTokenOnMain(name: String, value: String) {
+    val next = mapOf("channel" to name, "token" to value)
+    if (next == token) return
+    token = next
+    channel.invokeMethod("token", next)
   }
 
   private fun onMessage(data: Map<String, String>, title: String?, body: String?) {
@@ -160,7 +166,7 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
     private var instance: FlutterPushPlusPlugin? = null
 
     /** 各厂商 Service/Receiver 收到新令牌时调用（任意线程）。 */
-    fun emitToken(channel: String, token: String) = main.post { instance?.emitToken(channel, token) }
+    fun emitToken(channel: String, token: String) = main.post { instance?.emitTokenOnMain(channel, token) }
 
     /** 前台收到远程推送（FCM 前台、各家透传）时调用；有标题正文则代为弹系统通知。 */
     fun emitMessage(data: Map<String, String>, title: String?, body: String?) =
