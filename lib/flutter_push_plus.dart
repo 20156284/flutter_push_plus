@@ -260,6 +260,10 @@ class FlutterPushPlus {
           ongoing: ongoing,
           autoCancel: !ongoing,
           fullScreenIntent: fullScreen,
+          // 全屏通知按来电归类，勿扰模式下系统才会放行来电
+          category: fullScreen
+              ? AndroidNotificationCategory.call
+              : AndroidNotificationCategory.message,
           actions: [
             for (final a
                 in _categories[category]?.actions ?? const <PushAction>[])
@@ -279,6 +283,8 @@ class FlutterPushPlus {
               ? InterruptionLevel.timeSensitive
               : null,
         ),
+        // 同 id 原位替换时浏览器默认不再提醒，非静默要显式要求再提醒
+        web: WebNotificationDetails(renotify: !silent),
       ),
     );
   }
@@ -316,8 +322,9 @@ class FlutterPushPlus {
     IsolateNameServer.removePortNameMapping(_portName);
     _actionPort = ReceivePort()
       ..listen((msg) {
-        final [payload, actionId] = (msg as List).cast<String?>();
-        _onOpen?.call(_decodeJson(payload, actionId));
+        final [payload, actionId, reply] = msg as List;
+        (reply as SendPort).send(true);
+        _onOpen?.call(_decodeJson(payload as String?, actionId as String?));
       });
     IsolateNameServer.registerPortWithName(_actionPort!.sendPort, _portName);
   }
@@ -387,11 +394,21 @@ class FlutterPushPlus {
       : null;
 }
 
-/// 插件内部使用：后台按钮的入口。主 isolate 在就转交，不在就调用 `onBackgroundAction`。
+/// 插件内部使用：后台按钮的入口。主 isolate 活着就转交给 onOpen，否则调用 `onBackgroundAction`。
+/// 主引擎被销毁而进程还在时端口映射不会自动删，所以要等回执，1 秒没回就当它不在。
 @pragma('vm:entry-point')
 Future<void> pushPlusBackgroundEntry(NotificationResponse response) async {
   final port = IsolateNameServer.lookupPortByName(FlutterPushPlus._portName);
-  if (port != null) return port.send([response.payload, response.actionId]);
+  if (port != null) {
+    final reply = ReceivePort();
+    port.send([response.payload, response.actionId, reply.sendPort]);
+    final alive = await reply.first.timeout(
+      const Duration(seconds: 1),
+      onTimeout: () => false,
+    );
+    reply.close();
+    if (alive == true) return;
+  }
   WidgetsFlutterBinding.ensureInitialized();
   final raw = await FlutterPushPlus._channel.invokeMethod<int>(
     'getBackgroundHandle',

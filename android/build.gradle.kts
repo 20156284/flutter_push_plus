@@ -41,6 +41,17 @@ data class Vendor(val name: String, val enabled: Boolean, val manifest: String =
 /** 自家 meta-data 统一加前缀，防止纯数字的 ID 被当成整数解析丢精度。 */
 fun meta(key: String) = """<meta-data android:name="pushplus.$key" android:value="pp:${prop(key)}" />"""
 
+// 成对的键缺一个时厂商 SDK 只会静默失败，在构建期就报出来
+listOf(
+    "fcm.appId" to listOf("fcm.apiKey", "fcm.projectId", "fcm.senderId"),
+    "xiaomi.appId" to listOf("xiaomi.appKey"),
+    "oppo.appKey" to listOf("oppo.appSecret"),
+    "vivo.appId" to listOf("vivo.apiKey"),
+).forEach { (key, required) ->
+    val missing = required.filter { prop(key) != null && prop(it) == null }
+    if (missing.isNotEmpty()) throw GradleException("flutter_push_plus: 填了 pushPlus.$key 还要填 ${missing.joinToString { "pushPlus.$it" }}")
+}
+
 val vendors = listOf(
     Vendor(
         "fcm", prop("fcm.appId") != null || rootProject.file("app/google-services.json").exists(),

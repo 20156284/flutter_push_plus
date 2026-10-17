@@ -28,6 +28,14 @@ Future<void> main() async {
       arguments: message,
     ),
     onBackgroundAction: onBackgroundAction,
+    notificationChannels: const [
+      PushNotificationChannel(
+        'call',
+        '来电',
+        importance: PushImportance.max,
+        sound: false,
+      ),
+    ],
     categories: const [
       PushCategory('call', [
         PushAction('reject', '拒绝', destructive: true),
@@ -84,6 +92,9 @@ class _HomePageState extends State<HomePage> {
             body: '邀请你语音通话',
             data: {'callId': 'call-7'},
             category: 'call',
+            channelId: 'call',
+            ongoing: true,
+            fullScreen: true,
           ),
           child: const Text('4. 带按钮的通知（来电）'),
         ),

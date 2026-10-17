@@ -60,6 +60,7 @@ pushPlus.channelName=消息
 # 通知栏小图标（android/app/src/main/res/drawable/ 下的资源名，白色透明底）；本地、前台、FCM 后台通知共用
 pushPlus.icon=ic_notify
 # 来电等全屏通知要用 showNotification(fullScreen: true) 时才开（Google Play 对该权限有审核要求）
+# 成对的键（如 vivo.appId + vivo.apiKey）缺一个时构建会直接报错提示
 #pushPlus.fullScreenIntent=true
 
 # FCM（三星、Pixel、海外机）。也可以不填，改放 google-services.json 并接入 google-services 插件
@@ -114,7 +115,14 @@ dependencies { coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
 ### 2.2 iOS
 
-Xcode → Signing & Capabilities → `+ Capability` → **Push Notifications**。不用改 `AppDelegate`，插件会自动接好通知中心代理。
+1. Xcode → Signing & Capabilities → `+ Capability` → **Push Notifications**。
+2. 建议在 `AppDelegate` 的 `didFinishLaunchingWithOptions` 里加一行（苹果要求启动完成前设好，否则「App 被杀后点通知拉起」那一次可能收不到）：
+
+```swift
+UNUserNotificationCenter.current().delegate = self
+```
+
+不加也能用：插件会在注册时自动补上，热启动的点击、前台推送都正常，只有新模板（UIScene）下冷启动那一次有丢的可能。
 
 只有用 `onBackgroundAction`（App 被杀时点了不拉起 App 的按钮）才需要在 `AppDelegate` 里加一行，让后台 isolate 能用插件（⚠️ iOS 上这个场景还没实测，安卓已实测通过）：
 
@@ -181,7 +189,7 @@ await FlutterPushPlus.showNotification(
 | `getPermission()` | `PushPermission.granted / denied / notDetermined` |
 | `requestPermission()` | 申请通知权限，返回是否授权 |
 | `openNotificationSettings()` | 打开本 App 的系统通知设置页（用户拒绝过、或 ColorOS/vivo 默认关通知时引导） |
-| `showNotification({id, title, body, data, channelId, category, silent, ongoing, fullScreen, timeSensitive, badge})` | 弹通知。`silent` 改写已有通知时不再响；`ongoing`/`fullScreen` 仅安卓；`timeSensitive`/`badge` 仅 iOS |
+| `showNotification({id, title, body, data, channelId, category, silent, ongoing, fullScreen, timeSensitive, badge})` | 弹通知。`silent` 这条通知不响不振（如改写已显示的通知）；`ongoing`/`fullScreen` 仅安卓（`fullScreen` 自动按来电归类，勿扰时也能弹）；`timeSensitive`/`badge` 仅 iOS |
 | `cancelNotification(id)` / `cancelAllNotifications()` | 撤掉通知 |
 | `createNotificationChannel(PushNotificationChannel)` / `deleteNotificationChannel(id)` | 运行时增删安卓渠道（渠道的声音/振动建好后不可改，要变就换 id） |
 

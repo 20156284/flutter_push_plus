@@ -7,6 +7,12 @@
 - 通知图标没配或资源不存在时用 App 真实图标，宿主改过启动图标名也不会初始化失败。
 - gradle.properties 里的值做 XML 转义；用错渠道/按钮组在 debug 下断言提示。
 - pubspec 环境约束与 flutter_local_notifications 对齐（Flutter ≥ 3.38.1）。
+- 修复：点过「不拉起 App 的按钮」后安卓令牌与前台推送再也收不到（后台引擎抢走了实例）。
+- 修复：iOS 用后台按钮后完成回调被调两次（后台引擎重复注册应用代理）。
+- 修复：从最近任务恢复时重复投递冷启动那次点击。
+- 后台按钮：主引擎已销毁但进程还在时也能走 `onBackgroundAction`（等回执，1 秒超时）。
+- 安卓 `fullScreen` 通知按来电归类（勿扰时放行），其余按消息；Web 同 id 替换时非静默会再次提醒。
+- gradle.properties 成对的键缺一个时构建直接报错（如填了 vivo.appId 没填 vivo.apiKey）。
 
 ## 0.3.0（破坏性变更）
 

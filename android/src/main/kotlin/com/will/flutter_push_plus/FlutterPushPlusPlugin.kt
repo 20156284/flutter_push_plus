@@ -29,7 +29,6 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
     context = binding.applicationContext
     channel = MethodChannel(binding.binaryMessenger, "flutter_push_plus")
     channel.setMethodCallHandler(this)
-    instance = this
   }
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -42,6 +41,8 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
     when (call.method) {
       "init" -> {
+        // 只认调了 init 的主引擎：按钮回调会另起后台引擎并再注册一遍插件，不能把令牌和消息发过去
+        instance = this
         call.argument<Number>("backgroundHandle")?.let { prefs.edit().putLong("backgroundHandle", it.toLong()).apply() }
           ?: prefs.edit().remove("backgroundHandle").apply()
         PushRouter.pick(context)?.also { v ->
@@ -108,6 +109,8 @@ class FlutterPushPlusPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Ac
    */
   private fun takeClick(intent: Intent?): Map<String, Any>? {
     val extras = intent?.extras ?: return null
+    // 从最近任务恢复会带着原始 Intent 重建页面，这次点击早已投递过
+    if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
     // 本地通知的点击由 flutter_local_notifications 自己投递
     if (extras.containsKey("notificationId")) return null
     // 冷启动时 init 还没选通道，所以每个编进来的厂商都试一遍（小米的消息是序列化对象，通用规则取不到）

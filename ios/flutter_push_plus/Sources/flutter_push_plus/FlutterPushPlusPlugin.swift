@@ -5,6 +5,8 @@ import UserNotifications
 /// iOS 端：APNs 令牌、远程推送的前台展示与点击；本地通知由 flutter_local_notifications 处理。
 public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
   private static let backgroundKey = "flutter_push_plus.backgroundHandle"
+  /// 后台按钮会另起引擎再注册一遍插件，只让主引擎接应用代理，否则完成回调被调两次会崩。
+  private static var delegateRegistered = false
   private let channel: FlutterMethodChannel
   private var token: String?
   private var showInForeground = true
@@ -19,6 +21,8 @@ public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
     let channel = FlutterMethodChannel(name: "flutter_push_plus", binaryMessenger: registrar.messenger())
     let instance = FlutterPushPlusPlugin(channel: channel)
     registrar.addMethodCallDelegate(instance, channel: channel)
+    guard !delegateRegistered else { return }
+    delegateRegistered = true
     registrar.addApplicationDelegate(instance)
     // 宿主没设通知中心代理时替它设上，FlutterAppDelegate 会把回调转给各插件，免得宿主改原生代码
     let center = UNUserNotificationCenter.current()
