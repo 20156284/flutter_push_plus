@@ -1,3 +1,7 @@
+## 0.4.2
+
+- Web：浏览器没有 Notification API（iOS Safari 普通标签、部分 WebView）时不再抛错，权限视为 `denied`；未授权时 `showNotification` 直接跳过。
+
 ## 0.4.1
 
 - iOS 通知是否出声跟随所用通知渠道的 `sound`（之前只看 `silent`，关了声音的渠道在 iOS 上仍会响）。

@@ -132,8 +132,9 @@ class FlutterPushPlus {
     if (kIsWeb) {
       return switch (_web?.permissionStatus) {
         WebNotificationPermission.granted => PushPermission.granted,
-        WebNotificationPermission.denied => PushPermission.denied,
-        _ => PushPermission.notDetermined,
+        WebNotificationPermission.defaultPermissions =>
+          PushPermission.notDetermined,
+        _ => PushPermission.denied,
       };
     }
     final enabled = switch (defaultTargetPlatform) {
@@ -224,7 +225,9 @@ class FlutterPushPlus {
     bool fullScreen = false,
     bool timeSensitive = false,
     int? badge,
-  }) {
+  }) async {
+    // Web 未授权或浏览器不支持时 flutter_local_notifications 会抛错，直接不弹
+    if (kIsWeb && await getPermission() != PushPermission.granted) return;
     assert(
       channelId == null || _channels.containsKey(channelId),
       '通知渠道 $channelId 未创建，先在 init(notificationChannels:) 或 createNotificationChannel 里建',
@@ -234,7 +237,7 @@ class FlutterPushPlus {
       '按钮组 $category 未注册，先在 init(categories:) 里声明',
     );
     final channel = _channels[channelId] ?? _defaultChannel;
-    return _local.show(
+    await _local.show(
       id: id,
       title: message.title,
       body: message.body,
@@ -387,7 +390,9 @@ class FlutterPushPlus {
         IOSFlutterLocalNotificationsPlugin
       >();
 
-  static WebFlutterLocalNotificationsPlugin? get _web => kIsWeb
+  /// 没有 Notification API 的浏览器（iOS Safari 普通标签、部分 WebView）读权限会抛错，当作不支持。
+  static WebFlutterLocalNotificationsPlugin? get _web =>
+      kIsWeb && WebFlutterLocalNotificationsPlugin.isSupported
       ? _local
             .resolvePlatformSpecificImplementation<
               WebFlutterLocalNotificationsPlugin

@@ -44,7 +44,7 @@ dependencies:
   flutter_push_plus:
     git:
       url: https://github.com/20156284/flutter_push_plus.git
-      ref: v0.4.1
+      ref: v0.4.2
 ```
 
 ## 2. 配置
@@ -339,7 +339,7 @@ cd example && flutter run
 
 **项目里原来直接用了 `flutter_local_notifications`？** 改成用插件的 `showNotification` / `notificationChannels` / `categories`，然后删掉自己的初始化。它只能有一个初始化者，两边都初始化会抢点击回调。
 
-**Web 上能用吗？** 能弹本地通知、能申请权限（必须在点击事件里调用）；没有远程推送，`getToken()` 恒为 `null`。如果构建时报找不到 `flutter_web_plugins`，在 pubspec 加上 `flutter_web_plugins: {sdk: flutter}`。
+**Web 上能用吗？** 能弹本地通知、能申请权限（必须在点击事件里调用）；没有远程推送，`getToken()` 恒为 `null`。浏览器不支持通知（如 iOS Safari 普通标签）或未授权时，`showNotification` 直接跳过不报错，`getPermission()` 返回 `denied`。如果构建时报找不到 `flutter_web_plugins`，在 pubspec 加上 `flutter_web_plugins: {sdk: flutter}`。
 
 ## License
 
