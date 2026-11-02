@@ -1,0 +1,4 @@
+-keepattributes *Annotation*,Exceptions,InnerClasses,Signature,SourceFile,LineNumberTable
+-dontwarn com.vivo.push.**
+-keep class com.vivo.push.** { *; }
+-keep class com.vivo.vms.** { *; }

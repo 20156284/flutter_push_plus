@@ -4,7 +4,6 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'src/models.dart';
@@ -15,7 +14,8 @@ export 'src/models.dart';
 typedef PushBackgroundHandler = Future<void> Function(PushMessage message);
 
 /// 远程推送、本地通知、点击跳转的统一入口：iOS 走 APNs，安卓按品牌走厂商通道、其余 FCM。
-/// 后台/被杀时由系统通知栏展示；本地通知与前台推送由插件弹出，图标、渠道与远程推送一致。
+/// 通知栏消息在后台/被杀时由系统展示；本地通知由插件弹出，前台推送安卓由插件代弹、iOS 用系统横幅。
+/// [init] 的 `showInForeground` 在安卓还管引擎活着时的小米透传（含后台），见 README 第 5 节。
 class FlutterPushPlus {
   FlutterPushPlus._();
 
@@ -27,12 +27,14 @@ class FlutterPushPlus {
   static ValueChanged<PushMessage>? _onMessage;
   static ValueChanged<PushMessage>? _onOpen;
   static var _showInForeground = true;
+  static var _webReady = false;
   static var _defaultChannel = const PushNotificationChannel('push', 'Push');
   static final _channels = <String, PushNotificationChannel>{};
   static final _categories = <String, PushCategory>{};
   static ReceivePort? _actionPort;
 
-  /// 启动推送，须在用户同意隐私政策之后调用。[onToken] 拿到/轮换令牌；[onMessage] 前台收到远程推送；
+  /// 启动推送，须在用户同意隐私政策之后调用，App 生命周期内调一次。[onToken] 拿到/轮换令牌；
+  /// [onMessage] 收到远程推送：iOS 仅前台，安卓只要引擎活着（含后台），见 README 第 5 节；
   /// [onOpen] 点了通知或按钮（远程、本地、冷启动都走这里）；[onBackgroundAction] App 被杀时点了不拉起 App 的按钮。
   static Future<void> init({
     ValueChanged<PushToken>? onToken,
@@ -54,54 +56,59 @@ class FlutterPushPlus {
     var icon = '@mipmap/ic_launcher';
     if (!kIsWeb) {
       _channel.setMethodCallHandler(_handle);
+      final backgroundHandle = onBackgroundAction == null
+          ? null
+          : PluginUtilities.getCallbackHandle(onBackgroundAction);
+      assert(
+        onBackgroundAction == null || backgroundHandle != null,
+        'onBackgroundAction 必须是顶层或静态函数，闭包在后台拿不到',
+      );
       final native = await _channel.invokeMapMethod<String, Object?>('init', {
         'showInForeground': showInForeground,
-        'backgroundHandle': onBackgroundAction == null
-            ? null
-            : PluginUtilities.getCallbackHandle(
-                onBackgroundAction,
-              )?.toRawHandle(),
+        'backgroundHandle': backgroundHandle?.toRawHandle(),
       });
       _defaultChannel = PushNotificationChannel(
-        native?['channelId'] as String? ?? 'push',
-        native?['channelName'] as String? ?? 'Push',
+        native?['channelId'] as String? ?? _defaultChannel.id,
+        native?['channelName'] as String? ?? _defaultChannel.name,
       );
       icon = native?['icon'] as String? ?? icon;
       _listenActions();
     }
 
-    await _local.initialize(
-      settings: InitializationSettings(
-        android: AndroidInitializationSettings(icon),
-        iOS: DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
-          notificationCategories: [
-            for (final c in categories)
-              DarwinNotificationCategory(
-                c.id,
-                actions: [
-                  for (final a in c.actions)
-                    DarwinNotificationAction.plain(
-                      a.id,
-                      a.title,
-                      options: {
-                        if (a.foreground)
-                          DarwinNotificationActionOption.foreground,
-                        if (a.destructive)
-                          DarwinNotificationActionOption.destructive,
-                      },
-                    ),
-                ],
-              ),
-          ],
-        ),
-        web: const WebInitializationSettings(),
-      ),
-      onDidReceiveNotificationResponse: (r) => _onOpen?.call(_decode(r)),
-      onDidReceiveBackgroundNotificationResponse: pushPlusBackgroundEntry,
-    );
+    _webReady =
+        await _local.initialize(
+          settings: InitializationSettings(
+            android: AndroidInitializationSettings(icon),
+            iOS: DarwinInitializationSettings(
+              requestAlertPermission: false,
+              requestBadgePermission: false,
+              requestSoundPermission: false,
+              notificationCategories: [
+                for (final c in categories)
+                  DarwinNotificationCategory(
+                    c.id,
+                    actions: [
+                      for (final a in c.actions)
+                        DarwinNotificationAction.plain(
+                          a.id,
+                          a.title,
+                          options: {
+                            if (a.foreground)
+                              DarwinNotificationActionOption.foreground,
+                            if (a.destructive)
+                              DarwinNotificationActionOption.destructive,
+                          },
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+            web: const WebInitializationSettings(),
+          ),
+          onDidReceiveNotificationResponse: (r) => _emit(_onOpen, _decode(r)),
+          onDidReceiveBackgroundNotificationResponse: pushPlusBackgroundEntry,
+        ) ??
+        false;
     for (final c in [_defaultChannel, ...notificationChannels]) {
       await createNotificationChannel(c);
     }
@@ -111,57 +118,58 @@ class FlutterPushPlus {
       final remote = await _channel.invokeMapMethod<String, Object?>(
         'takeLaunchOpen',
       );
-      if (remote != null) _onOpen?.call(_remote(remote));
+      if (remote != null) _emit(_onOpen, _remote(remote));
     }
     final launch = await _local.getNotificationAppLaunchDetails();
     final response = launch?.notificationResponse;
     if ((launch?.didNotificationLaunchApp ?? false) && response != null) {
-      _onOpen?.call(_decode(response));
+      _emit(_onOpen, _decode(response));
     }
   }
 
   /// 当前通道令牌；还没拿到时为 null，拿到后经 `onToken` 通知。Web 上恒为 null。
   static Future<PushToken?> getToken() async {
     if (kIsWeb) return null;
-    final map = await _channel.invokeMapMethod<String, String>('getToken');
-    return map == null ? null : PushToken(map['channel']!, map['token']!);
+    final map = await _channel.invokeMapMethod<String, Object?>('getToken');
+    return map == null ? null : _token(map);
   }
 
   /// 当前通知权限状态；`notDetermined` 只有 Web 能区分，移动端未授权一律是 `denied`。
   static Future<PushPermission> getPermission() async {
     if (kIsWeb) {
-      return switch (_web?.permissionStatus) {
+      return switch (_web()?.permissionStatus) {
         WebNotificationPermission.granted => PushPermission.granted,
         WebNotificationPermission.defaultPermissions =>
           PushPermission.notDetermined,
-        _ => PushPermission.denied,
+        WebNotificationPermission.denied || null => PushPermission.denied,
       };
     }
     final enabled = switch (defaultTargetPlatform) {
-      TargetPlatform.iOS => (await _ios?.checkPermissions())?.isEnabled,
-      _ => await _android?.areNotificationsEnabled(),
+      TargetPlatform.iOS => (await _ios()?.checkPermissions())?.isEnabled,
+      _ => await _android()?.areNotificationsEnabled(),
     };
     return (enabled ?? false) ? PushPermission.granted : PushPermission.denied;
   }
 
   /// 申请通知权限：iOS、安卓 13+ 弹系统授权框；Web 必须在用户点击等手势里调用。
+  /// 安卓上已有权限框未关时再调会抛 `PlatformException`。
   static Future<bool> requestPermission() async {
     final granted = kIsWeb
-        ? await _web?.requestNotificationsPermission()
+        ? await _web()?.requestNotificationsPermission()
         : switch (defaultTargetPlatform) {
-            TargetPlatform.iOS => await _ios?.requestPermissions(
+            TargetPlatform.iOS => await _ios()?.requestPermissions(
               alert: true,
               badge: true,
               sound: true,
             ),
-            _ => await _android?.requestNotificationsPermission(),
+            _ => await _android()?.requestNotificationsPermission(),
           };
     return granted ?? false;
   }
 
   /// 打开本 App 的系统通知设置页：用户拒绝过授权，或 ColorOS、vivo 默认关了通知时引导去开。
   static Future<void> openNotificationSettings() async {
-    if (!kIsWeb) await _channel.invokeMethod<void>('openNotificationSettings');
+    if (!kIsWeb) await _local.openAppNotificationSettings();
   }
 
   /// 弹通知，点击时 [data] 原样回到 `onOpen`（须可 JSON 序列化）。[channelId] 默认 `pushPlus.channelId`，
@@ -199,7 +207,7 @@ class FlutterPushPlus {
     PushNotificationChannel channel,
   ) async {
     _channels[channel.id] = channel;
-    await _android?.createNotificationChannel(
+    await _android()?.createNotificationChannel(
       AndroidNotificationChannel(
         channel.id,
         channel.name,
@@ -212,7 +220,7 @@ class FlutterPushPlus {
 
   static Future<void> deleteNotificationChannel(String id) async {
     _channels.remove(id);
-    await _android?.deleteNotificationChannel(channelId: id);
+    await _android()?.deleteNotificationChannel(channelId: id);
   }
 
   static Future<void> _show(
@@ -226,8 +234,11 @@ class FlutterPushPlus {
     bool timeSensitive = false,
     int? badge,
   }) async {
-    // Web 未授权或浏览器不支持时 flutter_local_notifications 会抛错，直接不弹
-    if (kIsWeb && await getPermission() != PushPermission.granted) return;
+    // Web 未授权、浏览器不支持或 Service Worker 注册失败时直接不弹；刚注册还没激活的瞬间仍会抛 StateError
+    if (kIsWeb &&
+        (!_webReady || await getPermission() != PushPermission.granted)) {
+      return;
+    }
     assert(
       channelId == null || _channels.containsKey(channelId),
       '通知渠道 $channelId 未创建，先在 init(notificationChannels:) 或 createNotificationChannel 里建',
@@ -241,22 +252,13 @@ class FlutterPushPlus {
       id: id,
       title: message.title,
       body: message.body,
-      payload: jsonEncode({
-        's': message.source.name,
-        't': message.title,
-        'b': message.body,
-        'd': message.data,
-      }),
+      payload: _encode(message),
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           channel.id,
           channel.name,
           importance: _importance(channel.importance),
-          priority: switch (channel.importance) {
-            PushImportance.max => Priority.max,
-            PushImportance.high => Priority.high,
-            _ => Priority.defaultPriority,
-          },
+          priority: _priority(channel.importance),
           playSound: channel.sound,
           enableVibration: channel.vibrate,
           silent: silent,
@@ -288,7 +290,10 @@ class FlutterPushPlus {
               : null,
         ),
         // 同 id 原位替换时浏览器默认不再提醒，非静默要显式要求再提醒
-        web: WebNotificationDetails(renotify: !silent),
+        web: WebNotificationDetails(
+          renotify: !silent,
+          isSilent: silent || !channel.sound,
+        ),
       ),
     );
   }
@@ -297,27 +302,42 @@ class FlutterPushPlus {
     final args = (call.arguments as Map?)?.cast<String, Object?>() ?? const {};
     switch (call.method) {
       case 'token':
-        _onToken?.call(
-          PushToken(args['channel']! as String, args['token']! as String),
-        );
+        _emit(_onToken, _token(args));
       case 'message':
         final message = _remote(args);
-        _onMessage?.call(message);
-        // 安卓前台收到 FCM/透传时系统不弹，由插件代弹；iOS 原生已按 showInForeground 处理
+        _emit(_onMessage, message);
+        // 安卓走到这里系统都不弹，有标题或正文才代弹；iOS 原生已按 showInForeground 处理
         if (_showInForeground &&
             defaultTargetPlatform == TargetPlatform.android &&
             (message.title != null || message.body != null)) {
+          final channelId = args['channelId'] as String?;
           await _show(
             DateTime.now().millisecondsSinceEpoch & 0x7fffffff,
             message,
+            channelId: _channels.containsKey(channelId) ? channelId : null,
           );
         }
       case 'open':
-        _onOpen?.call(_remote(args));
+        _emit(_onOpen, _remote(args));
         // 告诉原生已处理，否则它会留给下次 takeLaunchOpen
         return true;
     }
     return null;
+  }
+
+  /// 宿主回调抛错不能打断插件流程（弹通知、init 后续步骤），也不能无声吞掉。
+  static void _emit<T>(ValueChanged<T>? callback, T value) {
+    try {
+      callback?.call(value);
+    } catch (exception, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: exception,
+          stack: stack,
+          library: 'flutter_push_plus',
+        ),
+      );
+    }
   }
 
   /// 不拉起 App 的按钮在后台 isolate 回调；主 isolate 活着就转回去走 onOpen。
@@ -328,41 +348,63 @@ class FlutterPushPlus {
       ..listen((msg) {
         final [payload, actionId, reply] = msg as List;
         (reply as SendPort).send(true);
-        _onOpen?.call(_decodeJson(payload as String?, actionId as String?));
+        _emit(_onOpen, _decodeJson(payload as String?, actionId as String?));
       });
     IsolateNameServer.registerPortWithName(_actionPort!.sendPort, _portName);
   }
+
+  /// 未知环境按 null。
+  static PushToken _token(Map<String, Object?> args) => PushToken(
+    args['channel']! as String,
+    args['token']! as String,
+    environment: PushEnvironment.values.asNameMap()[args['environment']],
+  );
 
   static PushMessage _remote(Map<String, Object?> args) => PushMessage(
     source: PushSource.remote,
     title: args['title'] as String?,
     body: args['body'] as String?,
     data: (args['data'] as Map?)?.cast<String, Object?>() ?? const {},
+    actionId: args['actionId'] as String?,
   );
 
   static PushMessage _decode(NotificationResponse r) =>
       _decodeJson(r.payload, r.actionId);
+
+  static String _encode(PushMessage message) => jsonEncode({
+    's': message.source.name,
+    't': message.title,
+    'b': message.body,
+    'd': message.data,
+  });
 
   /// 不是本插件发的通知（如升级前留在通知栏的旧通知）原文放进 `data['payload']`，不能抛错。
   static PushMessage _decodeJson(String? payload, String? actionId) {
     if (payload == null || payload.isEmpty) {
       return PushMessage(source: PushSource.local, actionId: actionId);
     }
-    final decoded = _tryDecode(payload);
-    final map = decoded is Map && decoded.containsKey('s')
-        ? decoded.cast<String, Object?>()
-        : {
-            'd': {'payload': payload},
-          };
-    return PushMessage(
-      source: map['s'] == PushSource.remote.name
-          ? PushSource.remote
-          : PushSource.local,
-      title: map['t'] as String?,
-      body: map['b'] as String?,
-      data: (map['d'] as Map?)?.cast<String, Object?>() ?? const {},
-      actionId: actionId,
-    );
+    return switch (_tryDecode(payload)) {
+      {
+        's': final String source,
+        't': final String? title,
+        'b': final String? body,
+        'd': final Map<String, Object?> data,
+      } =>
+        PushMessage(
+          source: source == PushSource.remote.name
+              ? PushSource.remote
+              : PushSource.local,
+          title: title,
+          body: body,
+          data: data,
+          actionId: actionId,
+        ),
+      _ => PushMessage(
+        source: PushSource.local,
+        data: {'payload': payload},
+        actionId: actionId,
+      ),
+    };
   }
 
   static Object? _tryDecode(String text) {
@@ -380,19 +422,26 @@ class FlutterPushPlus {
     PushImportance.max => Importance.max,
   };
 
-  static AndroidFlutterLocalNotificationsPlugin? get _android => _local
+  static Priority _priority(PushImportance i) => switch (i) {
+    PushImportance.low => Priority.low,
+    PushImportance.normal => Priority.defaultPriority,
+    PushImportance.high => Priority.high,
+    PushImportance.max => Priority.max,
+  };
+
+  static AndroidFlutterLocalNotificationsPlugin? _android() => _local
       .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin
       >();
 
-  static IOSFlutterLocalNotificationsPlugin? get _ios => _local
+  static IOSFlutterLocalNotificationsPlugin? _ios() => _local
       .resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin
       >();
 
   /// 没有 Notification API 的浏览器（iOS Safari 普通标签、部分 WebView）读权限会抛错，当作不支持。
-  static WebFlutterLocalNotificationsPlugin? get _web =>
-      kIsWeb && WebFlutterLocalNotificationsPlugin.isSupported
+  static WebFlutterLocalNotificationsPlugin? _web() =>
+      WebFlutterLocalNotificationsPlugin.isSupported
       ? _local
             .resolvePlatformSpecificImplementation<
               WebFlutterLocalNotificationsPlugin
@@ -415,7 +464,6 @@ Future<void> pushPlusBackgroundEntry(NotificationResponse response) async {
     reply.close();
     if (alive == true) return;
   }
-  WidgetsFlutterBinding.ensureInitialized();
   final raw = await FlutterPushPlus._channel.invokeMethod<int>(
     'getBackgroundHandle',
   );

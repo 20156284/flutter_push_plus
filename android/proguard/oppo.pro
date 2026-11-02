@@ -1,0 +1,5 @@
+-keepattributes *Annotation*,Exceptions,InnerClasses,Signature,SourceFile,LineNumberTable
+-dontwarn com.heytap.**
+-keep class com.heytap.msp.** { *; }
+-keep class com.heytap.mcssdk.** { *; }
+-keep class com.mcs.aidl.** { *; }

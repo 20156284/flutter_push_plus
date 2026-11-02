@@ -1,3 +1,16 @@
+## 0.4.3
+
+- `PushToken` 新增可空 `environment`（`PushEnvironment.sandbox / production`）：iOS 按描述文件的 `aps-environment` 判定，模拟器为 sandbox，App Store、TestFlight 为 production；安卓与无法判定时为 null。
+- iOS 远程推送点按钮时 `onOpen` 带 `actionId`；`init` 之前的前台推送不再弹横幅。
+- 宿主回调抛错不再打断 `init` 和代弹通知，错误走 `FlutterError.reportError`。
+- 外来 payload 类型不符时不再抛错，原文放进 `data['payload']`；Web 上 `silent` 与渠道静音生效。
+- 安卓：`pushPlus.channelName` 可直接写中文；`pushPlus.icon` release 不再被裁（资源不存在时构建报错）；填了小米、OPPO 配置却缺 aar、成对键缺一个都在构建期报错。
+- 安卓：FCM 走 `google-services.json` 时不再在 `init` 之前生成令牌；注册失败都打日志且不影响本地通知；混淆规则按启用的厂商加载。
+- 安卓：只清用掉的启动 extras；深链、Flutter 自身的 extras 不再误判成推送点击；进程被回收后重建不再重投旧点击。
+- 安卓：华为、荣耀透传非 JSON 时原文放进 `data['payload']`；小米透传主体也放进 `data['payload']`（宿主 `data` 会多这个键）；小米点击的 `data` 不再带 `notify_effect`、`channel_id` 和保留键。
+- 安卓：`PushImportance.low` 的通知优先级改为 low（之前落到 default）；FCM 前台代弹跟随下发的 `channel_id`（渠道已创建时）；OPPO 补接收权限；重复 `init` 会再回调一次令牌。
+- 依赖下限提到 `flutter_local_notifications` 22.3.2。
+
 ## 0.4.2
 
 - Web：浏览器没有 Notification API（iOS Safari 普通标签、部分 WebView）时不再抛错，权限视为 `denied`；未授权时 `showNotification` 直接跳过。

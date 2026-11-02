@@ -1,0 +1,3 @@
+-keepattributes *Annotation*,Exceptions,InnerClasses,Signature,SourceFile,LineNumberTable
+-dontwarn com.hihonor.**
+-keep class com.hihonor.push.** { *; }

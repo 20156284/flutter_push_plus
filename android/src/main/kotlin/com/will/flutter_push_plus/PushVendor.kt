@@ -6,8 +6,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 
+internal const val TAG = "flutter_push_plus"
+
 /** 一家推送通道。实现类放在 src/vendors/<厂商>/，只有宿主配置了该厂商才会编进包。 */
-interface PushVendor {
+internal interface PushVendor {
   /** 上报给服务端的通道名：FCM / HUAWEI / HONOR / XIAOMI / OPPO / VIVO */
   val channel: String
 
@@ -15,9 +17,9 @@ interface PushVendor {
   fun isSupported(context: Context): Boolean
 
   /** 注册并回调令牌；令牌轮换时由各家的 Service/Receiver 走 [FlutterPushPlusPlugin.emitToken]。 */
-  fun register(context: Context, onToken: (String) -> Unit)
+  fun register(context: Context, onToken: (String?) -> Unit)
 
-  /** 点击通知拉起 App 时，从 Intent 取出推送自定义字段；不是自家的推送返回 null。 */
+  /** 点击通知拉起 App 时，从 Intent 取出推送自定义字段并清掉；不是自家的推送返回 null。 */
   fun extractClick(intent: Intent): Map<String, String>? = null
 }
 
@@ -39,10 +41,16 @@ internal object PushRouter {
     }
     return (brands + "Fcm").firstNotNullOfOrNull { name ->
       compiled[name]?.takeIf { vendor ->
-        runCatching { vendor.isSupported(context) }
-          .onFailure { Log.w("flutter_push_plus", "${vendor.channel} unavailable", it) }
-          .getOrDefault(false)
-          .also { if (!it) Log.i("flutter_push_plus", "${vendor.channel} not supported on this device") }
+        runCatching { vendor.isSupported(context) }.fold(
+          onSuccess = { supported ->
+            if (!supported) Log.i(TAG, "${vendor.channel} not supported on this device")
+            supported
+          },
+          onFailure = {
+            Log.w(TAG, "${vendor.channel} unavailable", it)
+            false
+          },
+        )
       }
     }
   }
@@ -55,8 +63,10 @@ internal object PushRouter {
   }
 }
 
+private fun Context.pushMeta() = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA).metaData
+
 /** 读 gradle.properties 里 pushPlus.* 生成的 meta-data（值带 pp: 前缀防止被解析成数字）。 */
-internal fun Context.pushConfig(key: String): String? {
-  val meta = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA).metaData
-  return meta?.getString("pushplus.$key")?.removePrefix("pp:")
-}
+internal fun Context.pushConfig(key: String): String? = pushMeta()?.getString("pushplus.$key")?.removePrefix("pp:")
+
+/** 通知小图标的资源 id，没配为 0；manifest 直接引用资源，release 才不会被裁掉。 */
+internal fun Context.iconRes(): Int = pushMeta()?.getInt("pushplus.iconRes") ?: 0
