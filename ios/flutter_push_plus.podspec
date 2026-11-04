@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_push_plus'
-  s.version          = '0.4.3'
+  s.version          = '0.5.0'
   s.summary          = 'Unified remote push (APNs/FCM), local notifications and tap routing for Flutter.'
   s.description      = <<-DESC
 Unified remote push (APNs/FCM), local notifications and tap routing for Flutter.

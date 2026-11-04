@@ -33,7 +33,8 @@
 6. [服务端怎么发推送](#6-服务端怎么发推送)
 7. [⚠️ 各厂商注意事项（上线前必读）](#7-️-各厂商注意事项上线前必读)
 8. [示例工程](#8-示例工程)
-9. [常见问题](#9-常见问题)
+9. [iOS 系统来电（VoIP）](#9-ios-系统来电voip)
+10. [常见问题](#10-常见问题)
 
 ---
 
@@ -373,7 +374,71 @@ adb shell am start -n <包名>/.MainActivity --es page /chat --es conversationId
 cd example && flutter run
 ```
 
-## 9. 常见问题
+## 9. iOS 系统来电（VoIP）
+
+插件自己持有 PushKit 与 CallKit：App 被杀、锁屏时服务端发一条 VoIP 推送，就能弹出系统来电界面。宿主不用写任何原生代码，也不依赖 `flutter_callkit_incoming`。
+
+### 接入
+
+1. `Info.plist` 的 `UIBackgroundModes` 加 `voip`（没加时插件不启用，所有方法返回空结果，不会崩）。
+2. Xcode 开 **Push Notifications** 能力（VoIP 推送和普通推送同一个能力）。
+3. 宿主须在启动时同步注册主引擎（`GeneratedPluginRegistrant.register`），后台按钮另起的引擎不会重复启用。
+
+### Dart 调用
+
+```dart
+// 冷启动先接回：系统里已挂着的来电（用户可能已点了接听）、被杀期间点了拒绝的通话
+final active = await PushVoip.activeCalls();
+final declined = await PushVoip.takeDeclined(); // List<PushVoipCall>，带来电人、roomId 等整通数据
+
+PushVoip.events().listen((event) {
+  switch (event) {
+    case PushVoipIncomingEvent(:final call): // 收到来电推送并已上报；App 活着但信令已断时靠它建会话，没人监听即丢弃
+    case PushVoipActionEvent(:final uuid, :final action): // accept / decline / end / timeout / cancel
+    case PushVoipMuteEvent(:final uuid, :final muted):
+    case PushVoipTokenEvent(:final token): // 令牌变了，重新上报服务端
+  }
+});
+
+final token = await PushVoip.getToken(); // 交给服务端，和 PushToken 分开存
+// 推送没到、App 在前台时自己补报一通来电；false 表示系统拒绝（勿扰、拦截），退回 App 内响铃；同一通已在响算成功，返回 true
+final shown = await PushVoip.reportIncoming(
+  const PushVoipCall(callId: 'c1', callerName: '小明', callerId: 'u1', hasVideo: false),
+);
+await PushVoip.markConnected(uuid); // 接通后调，系统界面随之停止响铃
+await PushVoip.setMuted(uuid, muted: true);
+await PushVoip.end(uuid); // 对端取消、挂断时调，不会再触发拒绝事件
+```
+
+`uuid` 由 callId 派生（RFC 4122 v5，DNS 命名空间，小写），`PushVoip.uuidOf(callId)` 与原生同算法，推送和自己的信令对同一通电话得到同一个 `uuid`。
+
+### 服务端怎么发
+
+请求头与 payload：
+
+| 项 | 值 |
+|---|---|
+| topic | `<bundleId>.voip` |
+| `apns-push-type` | `voip` |
+| `apns-priority` | `10` |
+| `apns-expiration` | 发送时间 + 60 秒，与 ttl 一致 |
+| 令牌 | `PushVoip.getToken()` 的值 |
+
+| payload 字段 | 说明 |
+|---|---|
+| `callId` | 通话标识，必填；缺了会被当作取消 |
+| `action` | `CANCEL` 表示取消这通来电，其余当作来电 |
+| `hasVideo` | `"1"` 为视频，其余为语音 |
+| `callerName` / `callerId` | 系统界面上的来电名与号码 |
+| `callerAvatar` / `roomId` 及其它 | 不参与展示，原样进入 `PushVoipCall.extra` |
+
+⚠️ iOS 13+ 每条 VoIP 推送都必须上报系统来电，否则系统会杀进程并停发。插件对 CANCEL、已结束通话的迟到推送、缺 `callId` 的推送也都先上报再立刻结束，并发出 `cancel` 事件。振铃 60 秒无人接听会自动结束并发出 `timeout`。
+
+### 沙箱与生产
+
+VoIP 令牌和普通 APNs 令牌一样分环境：Xcode 直装用沙箱网关，TestFlight、App Store 用生产网关，判断方式与 `PushToken.environment` 相同（见第 4 节「APNs 令牌环境」）。网关选错会收不到推送。
+
+## 10. 常见问题
 
 **iOS 点了通知没反应？** 插件只在宿主没设置通知中心代理时才自动设置。如果你或别的插件把代理设成了其它对象，要让那个对象把回调转给 `FlutterAppDelegate`。
 

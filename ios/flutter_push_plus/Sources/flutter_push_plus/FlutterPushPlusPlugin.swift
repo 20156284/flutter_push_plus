@@ -57,6 +57,7 @@ public class FlutterPushPlusPlugin: NSObject, FlutterPlugin {
     guard !delegateRegistered else { return }
     delegateRegistered = true
     registrar.addApplicationDelegate(instance)
+    PushPlusVoip.start(messenger: registrar.messenger())
     // 宿主没设通知中心代理时替它设上，FlutterAppDelegate 会把回调转给各插件，免得宿主改原生代码
     let center = UNUserNotificationCenter.current()
     if center.delegate == nil, let app = UIApplication.shared.delegate as? UNUserNotificationCenterDelegate {

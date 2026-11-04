@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'src/models.dart';
 
 export 'src/models.dart';
+export 'src/voip.dart';
 
 /// 后台按钮回调：必须是顶层或静态函数，并加 `@pragma('vm:entry-point')`。
 typedef PushBackgroundHandler = Future<void> Function(PushMessage message);

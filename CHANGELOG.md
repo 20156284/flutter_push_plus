@@ -1,3 +1,11 @@
+## 0.5.0
+
+- 新增 iOS 系统来电 `PushVoip`：插件自己持有 PushKit 与 CallKit，宿主只需在 `Info.plist` 的 `UIBackgroundModes` 加 `voip`，不用写原生代码，也不再需要 `flutter_callkit_incoming`。
+- 提供 `events`、`getToken`、`reportIncoming`、`end`、`markConnected`、`setMuted`、`activeCalls`、`takeDeclined`、`uuidOf`；事件为 `PushVoipEvent`（动作、静音、令牌变化）。
+- 每条 VoIP 推送都先上报 CallKit；`CANCEL`、迟到的已结束通话、缺 `callId` 的推送上报后立即结束并发 `cancel` 事件。
+- 被杀期间在系统界面的拒绝落盘 90 秒，冷启动用 `takeDeclined` 取走；振铃 60 秒无人接听自动结束并发 `timeout`。
+- 新增依赖 `crypto`。
+
 ## 0.4.3
 
 - `PushToken` 新增可空 `environment`（`PushEnvironment.sandbox / production`）：iOS 按描述文件的 `aps-environment` 判定，模拟器为 sandbox，App Store、TestFlight 为 production；安卓与无法判定时为 null。
